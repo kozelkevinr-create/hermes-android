@@ -26,6 +26,8 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.toArgb
+import com.hermes.client.ui.theme.onColorFor
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -70,6 +72,6 @@ fun SlideToConfirm(label: String, accent: Color, onConfirm: () -> Unit, modifier
                     )
                 },
             contentAlignment = Alignment.Center,
-        ) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = Color.White) }
+        ) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = Color(onColorFor(accent.toArgb()))) }
     }
 }

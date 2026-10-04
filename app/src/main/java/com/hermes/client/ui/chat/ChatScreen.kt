@@ -27,7 +27,6 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -361,11 +360,11 @@ fun ChatScreen(
                                     Image(
                                         bitmap = bmp,
                                         contentDescription = "Attachment",
-                                        modifier = Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)),
+                                        modifier = Modifier.size(56.dp).clip(com.hermes.client.ui.theme.PanelShape),
                                         contentScale = ContentScale.Crop,
                                     )
                                 } else {
-                                    Box(Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceVariant))
+                                    Box(Modifier.size(56.dp).clip(com.hermes.client.ui.theme.PanelShape).background(MaterialTheme.colorScheme.surfaceVariant))
                                 }
                                 // Remove badge: a dark circular scrim + white ✕ for contrast over any
                                 // thumbnail, with a comfortably tappable target (a 20.dp icon was too small).

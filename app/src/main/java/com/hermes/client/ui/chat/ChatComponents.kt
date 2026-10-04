@@ -18,15 +18,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.size
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -212,13 +205,13 @@ private fun UserBubble(msg: ChatMessage, onEditResend: (String) -> Unit, highlig
     val bg = if (msg.isError) MaterialTheme.colorScheme.errorContainer
     else MaterialTheme.colorScheme.primaryContainer
     val accent = LocalProfileAccent.current.accent
-    val userShape = RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp)
+    val userShape = com.hermes.client.ui.theme.UserBubbleShape
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         Box {
             Column(
                 Modifier
                     .widthIn(max = 320.dp)
-                    // Asymmetric corners (a small "tail" corner) mark this as the sender's bubble.
+                    // Asymmetric chamfer (square "tail" corners on the end side) marks the sender's bubble.
                     .clip(userShape)
                     .background(bg)
                     .then(if (highlighted) Modifier.background(accent.copy(alpha = 0.18f)).border(1.5.dp, accent, userShape) else Modifier)
@@ -257,7 +250,7 @@ private fun AssistantTurn(
     var menuOpen by remember { mutableStateOf(false) }
     val speakable = remember(msg.text) { speechText(msg.text).isNotBlank() }
     val accent = LocalProfileAccent.current.accent
-    val hlShape = RoundedCornerShape(12.dp)
+    val hlShape = com.hermes.client.ui.theme.PanelShape
     Box {
         Column(
             Modifier
@@ -274,7 +267,7 @@ private fun AssistantTurn(
                 if (msg.isError) {
                     Surface(
                         color = MaterialTheme.colorScheme.errorContainer,
-                        shape = RoundedCornerShape(12.dp),
+                        shape = com.hermes.client.ui.theme.PanelShape,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text(
@@ -391,27 +384,8 @@ private fun CodeWithCopy(code: String, @Suppress("UNUSED_PARAMETER") language: S
 /** Three pulsing dots while the agent composes its first token — replaces the literal "…". */
 @Composable
 private fun TypingIndicator() {
-    val transition = rememberInfiniteTransition(label = "typing")
-    Row(Modifier.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        repeat(3) { i ->
-            val alpha by transition.animateFloat(
-                initialValue = 0.25f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(durationMillis = 600, delayMillis = i * 160, easing = LinearEasing),
-                    repeatMode = RepeatMode.Reverse,
-                ),
-                label = "dot$i",
-            )
-            Box(
-                Modifier
-                    .padding(end = 5.dp)
-                    .size(7.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha)),
-            )
-        }
-    }
+    // Agent is "typing": a hard-blinking block cursor, like a VT waiting on output.
+    com.hermes.client.ui.theme.BlinkingCursor(Modifier.padding(vertical = 2.dp))
 }
 
 @Composable
@@ -430,7 +404,7 @@ private fun ToolCard(tool: ToolCall) {
     val technical = com.hermes.client.ui.theme.LocalToolCallTechnical.current
     Surface(
         tonalElevation = 2.dp,
-        shape = RoundedCornerShape(10.dp),
+        shape = com.hermes.client.ui.theme.PanelShape,
         modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
     ) {
         Column(Modifier.padding(10.dp)) {

@@ -24,7 +24,9 @@ import com.hermes.client.ui.diagnostics.CrashReportScreen
 import com.hermes.client.ui.nav.HermesNav
 import com.hermes.client.ui.nav.deepLinkRouteFor
 import com.hermes.client.ui.nav.isNewChatLink
+import androidx.compose.ui.Modifier
 import com.hermes.client.ui.theme.HermesTheme
+import com.hermes.client.ui.theme.crtScanlines
 import com.hermes.client.ui.theme.LocalToolCallTechnical
 import dagger.hilt.android.AndroidEntryPoint
 import androidx.core.content.ContextCompat
@@ -86,7 +88,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         setContent {
-            val mode by settingsStore.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
+            val mode by settingsStore.themeMode.collectAsState(initial = ThemeMode.DARK)
             val technical by settingsStore.toolCallTechnical.collectAsState(initial = true)
             val activeProfile by profileManager.active.collectAsState()
             val accentOverrides by profileAccentStore.overrides.collectAsState(initial = emptyMap())
@@ -102,7 +104,8 @@ class MainActivity : ComponentActivity() {
             ) {
                 HermesTheme(darkTheme = dark, profile = activeProfile) {
                     CompositionLocalProvider(LocalToolCallTechnical provides technical) {
-                        Surface {
+                        // CRT scanlines over the whole app in the dark (Neon Night) theme.
+                        Surface(Modifier.crtScanlines(enabled = dark)) {
                             // If the previous run crashed, show the saved trace first so it can be
                             // shared, then continue into the app once dismissed.
                             var report by remember { mutableStateOf(crashReport) }

@@ -14,9 +14,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.hermes.client.data.network.ConnectionState
+import com.hermes.client.ui.theme.Neon
 
 fun connectionLabel(state: ConnectionState): String = when (state) {
     ConnectionState.Connected -> "Connected"
@@ -36,9 +36,9 @@ fun bannerLabel(state: ConnectionState): String = when (state) {
 @Composable
 fun StatusDot(state: ConnectionState, modifier: Modifier = Modifier, showLabel: Boolean = false) {
     val color = when (state) {
-        ConnectionState.Connected -> Color(0xFF2E7D32)
-        ConnectionState.Connecting, ConnectionState.Reconnecting -> Color(0xFFF9A825)
-        else -> Color(0xFFC62828)
+        ConnectionState.Connected -> Neon.Phosphor
+        ConnectionState.Connecting, ConnectionState.Reconnecting -> Neon.Amber
+        else -> Neon.Red
     }
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         Box(

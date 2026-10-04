@@ -12,8 +12,8 @@ import androidx.compose.ui.graphics.Color
 // legibility. The math below is pure (ARGB Int in/out) so it unit-tests without Compose or
 // an Android runtime; the Compose-facing wrapper just boxes the ints into Color.
 
-/** Fallback hue for the default/no profile — a stable brand indigo rather than a hashed one. */
-internal const val DEFAULT_ACCENT_HUE = 245f
+/** Fallback hue for the default/no profile — phosphor green, the brand's terminal ink. */
+internal const val DEFAULT_ACCENT_HUE = 140f
 
 private const val WHITE_ARGB = 0xFFFFFFFF.toInt()
 private const val BLACK_ARGB = 0xFF000000.toInt()
@@ -41,19 +41,19 @@ internal fun profileHue(name: String): Float {
     return (unsigned % 360L).toFloat()
 }
 
-/** Vivid accent (FAB, selected nav, indicators). Lighter on dark, deeper on light. */
+/** Neon accent (FAB, selected nav, indicators). Full-saturation glow on dark, deeper ink on light. */
 internal fun accentArgb(profile: String?, dark: Boolean): Int {
     val hue = if (profile.isNullOrBlank()) DEFAULT_ACCENT_HUE else profileHue(profile)
-    val s = if (dark) 0.52f else 0.62f
-    val l = if (dark) 0.62f else 0.44f
+    val s = if (dark) 1.0f else 0.85f
+    val l = if (dark) 0.58f else 0.36f
     return hslToArgb(hue, s, l)
 }
 
-/** Soft tinted container (header chips, subtle backgrounds). */
+/** Tinted container (header chips, top bar). A dim neon wash on dark so the CRT stays black. */
 internal fun containerArgb(profile: String?, dark: Boolean): Int {
     val hue = if (profile.isNullOrBlank()) DEFAULT_ACCENT_HUE else profileHue(profile)
-    val s = if (dark) 0.38f else 0.42f
-    val l = if (dark) 0.24f else 0.90f
+    val s = if (dark) 0.70f else 0.55f
+    val l = if (dark) 0.12f else 0.88f
     return hslToArgb(hue, s, l)
 }
 
@@ -130,7 +130,7 @@ fun profileAccentColors(profile: String?, dark: Boolean, overrideArgb: Int? = nu
 /** Soft accent-tinted container derived from a chosen accent colour (for the top-bar tint). */
 internal fun softContainerFrom(argb: Int, dark: Boolean): Int {
     val (h, s, _) = argbToHsl(argb)
-    return hslToArgb(h, s * 0.55f, if (dark) 0.24f else 0.90f)
+    return hslToArgb(h, s * 0.70f, if (dark) 0.12f else 0.88f)
 }
 
 /** ARGB → HSL (hue in [0,360), saturation/lightness in [0,1]); alpha ignored. */
@@ -161,7 +161,8 @@ internal fun argbToHsl(argb: Int): Triple<Float, Float, Float> {
 // worst-case max(black,white) contrast for any opaque colour is ~4.58 — always above the AA-large
 // 3.0 bar. So any chosen colour stays legible as long as chrome text uses the paired on-colour;
 // no colour needs to be rejected. (This is why the picker can even be a free wheel later.)
-val ACCENT_SWATCHES: List<Int> = (0 until 12).map { hslToArgb(it * 30f, 0.62f, 0.44f) }
+// Neon swatches: full saturation, mid lightness — phosphor, cyan, magenta, amber and friends.
+val ACCENT_SWATCHES: List<Int> = (0 until 12).map { hslToArgb(it * 30f, 1.0f, 0.55f) }
 
 /** Available anywhere in the tree; defaults to the brand (no-profile) accent in light mode. */
 val LocalProfileAccent = staticCompositionLocalOf { profileAccentColors(null, dark = false) }

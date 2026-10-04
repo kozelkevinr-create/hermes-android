@@ -4,7 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
+import com.hermes.client.ui.theme.Neon
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
@@ -19,6 +19,7 @@ import androidx.glance.layout.Column
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.padding
+import androidx.glance.text.FontFamily
 import androidx.glance.text.Text
 import androidx.glance.text.TextAlign
 import androidx.glance.text.TextStyle
@@ -33,13 +34,13 @@ class HermesWidget : GlanceAppWidget() {
     private fun Content(context: Context) {
         Column(
             modifier = GlanceModifier.fillMaxSize()
-                .background(ColorProvider(Color(0xFF3B3BAF)))
+                .background(ColorProvider(Neon.Void))
                 .padding(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Item(context, "New chat", "hermes://new")
-            Item(context, "Chats", "hermes://tab/sessions")
-            Item(context, "Home", "hermes://tab/activity")
+            Item(context, "> new_chat", "hermes://new")
+            Item(context, "> sessions", "hermes://tab/sessions")
+            Item(context, "> activity", "hermes://tab/activity")
         }
     }
 
@@ -51,7 +52,7 @@ class HermesWidget : GlanceAppWidget() {
             modifier = GlanceModifier.fillMaxWidth()
                 .padding(vertical = 6.dp)
                 .clickable(actionStartActivity(intent)),
-            style = TextStyle(color = ColorProvider(Color.White), fontSize = 16.sp, textAlign = TextAlign.Center),
+            style = TextStyle(color = ColorProvider(Neon.Phosphor), fontSize = 16.sp, fontFamily = FontFamily.Monospace, textAlign = TextAlign.Center),
         )
     }
 }

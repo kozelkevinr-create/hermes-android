@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AdminPanelSettings
@@ -151,7 +150,8 @@ private fun AccentColorDialog(
                                 contentAlignment = Alignment.Center,
                             ) {
                                 if (argb == selected) {
-                                    Icon(Icons.Rounded.Check, contentDescription = "Selected", tint = Color.White)
+                                    // Adaptive tick colour: neon swatches are bright, so white would vanish on most of them.
+                                    Icon(Icons.Rounded.Check, contentDescription = "Selected", tint = Color(com.hermes.client.ui.theme.onColorFor(argb)))
                                 }
                             }
                         }
@@ -168,7 +168,7 @@ private fun AccentColorDialog(
                 )
                 // Live preview of the dialled-in colour (accent + its adaptive, always-legible on-colour).
                 Box(
-                    Modifier.fillMaxWidth().height(44.dp).clip(RoundedCornerShape(12.dp)).background(preview.accent),
+                    Modifier.fillMaxWidth().height(44.dp).clip(MaterialTheme.shapes.small).background(preview.accent),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text("Preview", color = preview.onAccent, style = MaterialTheme.typography.labelLarge)

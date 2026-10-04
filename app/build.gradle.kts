@@ -18,7 +18,11 @@ plugins {
 
 android {
     namespace = "com.hermes.client"
-    compileSdk = 37
+    // Current SDK packages publish API 37 as "android-37.0"; the plain `compileSdk = 37` form looks
+    // for "android-37" and fails on fresh SDK installs, so name the minor level explicitly.
+    compileSdk {
+        version = release(37) { minorApiLevel = 0 }
+    }
 
     defaultConfig {
         applicationId = "com.hermes.client"

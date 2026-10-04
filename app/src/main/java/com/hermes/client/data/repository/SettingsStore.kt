@@ -19,7 +19,7 @@ class SettingsStore(private val context: Context) {
     private val debugLoggingKey = booleanPreferencesKey("debug_logging")
 
     val themeMode: Flow<ThemeMode> = context.settingsDataStore.data.map { prefs ->
-        runCatching { ThemeMode.valueOf(prefs[themeKey] ?: "SYSTEM") }.getOrDefault(ThemeMode.SYSTEM)
+        runCatching { ThemeMode.valueOf(prefs[themeKey] ?: "DARK") }.getOrDefault(ThemeMode.DARK)
     }
 
     /** True = show full tool input/output (Technical); false = hide payloads (Product). */
