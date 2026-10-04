@@ -1,0 +1,26 @@
+# macOS
+.DS_Store
+
+# Android / Gradle
+.gradle/
+build/
+local.properties
+*.apk
+*.aab
+.idea/
+*.iml
+captures/
+.cxx/
+.kotlin/
+
+# Signing secrets — never commit
+keystore.properties
+keystore/
+*.jks
+*.keystore
+
+# Local tooling
+.claude/
+
+# Local-only agent standards (not shared)
+CLAUDE.md
