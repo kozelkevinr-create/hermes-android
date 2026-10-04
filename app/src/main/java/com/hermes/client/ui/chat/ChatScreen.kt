@@ -307,7 +307,7 @@ fun ChatScreen(
                                     } else {
                                         val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                                             type = "text/plain"
-                                            putExtra(android.content.Intent.EXTRA_SUBJECT, "Hermes chat transcript")
+                                            putExtra(android.content.Intent.EXTRA_SUBJECT, "Hermes Local chat transcript")
                                             putExtra(android.content.Intent.EXTRA_TEXT, t)
                                         }
                                         runCatching {

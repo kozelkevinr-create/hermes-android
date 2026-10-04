@@ -73,7 +73,7 @@ class NotificationTileService : TileService() {
     private fun renderTile(enabled: Boolean) {
         val tile = qsTile ?: return
         tile.state = if (enabled) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
-        tile.label = "Hermes"
+        tile.label = "Hermes Local"
         tile.icon = Icon.createWithResource(this, R.drawable.ic_stat_hermes)
         if (Build.VERSION.SDK_INT >= 29) tile.subtitle = if (enabled) "On" else "Off"
         tile.updateTile()

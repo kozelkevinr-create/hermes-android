@@ -71,7 +71,7 @@ fun DiagnosticsScreen(
                     onClick = {
                         val send = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
-                            putExtra(Intent.EXTRA_SUBJECT, "Hermes diagnostic log")
+                            putExtra(Intent.EXTRA_SUBJECT, "Hermes Local diagnostic log")
                             putExtra(Intent.EXTRA_TEXT, vm.export())
                         }
                         context.startActivity(Intent.createChooser(send, "Share diagnostic log"))

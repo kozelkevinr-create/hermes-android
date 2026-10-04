@@ -1,45 +1,39 @@
-# Hermes for Android
+# Hermes Local
 
-> 💜 **Enjoying Hermes for Android?** [**☕ Support development on Ko-fi →**](https://ko-fi.com/andrew65386) — donations fund new features and keep the project alive. (GitHub Sponsors coming soon.)
+**Author:** Kevin Kozel
 
-[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20the%20project-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/andrew65386)
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=for-the-badge)](LICENSE)
-[![Latest release](https://img.shields.io/github/v/release/adebnar/hermes-android?style=for-the-badge&label=latest)](https://github.com/adebnar/hermes-android/releases/latest)
+A cyberpunk / 90s-terminal Android client for the **Hermes agent gateway**: phosphor-green
+on CRT black, neon cyan and magenta accents, VT323 pixel headings, JetBrains Mono body text,
+chamfered "cyberdeck" panels, CRT scanlines and a blinking block cursor while the agent types.
 
-A native Android client for the **Hermes agent gateway** — a phone-friendly companion to
-the Hermes Desktop app. It connects to a remote Hermes gateway over Tailscale, another
-private VPN, or your local network, and gives you full chat plus the management surface: sessions, models,
-profiles, scheduled jobs, usage analytics, messaging integrations, and settings.
-
-A three-tab bottom bar (**Chats · Agent Activity · You**) sits on a ground-up Material 3
-design system where each tenant profile has its own accent colour, so you always see which
-client you're acting as. The **Agent Activity** tab is a live Mission Control feed you can
-swipe between tenants.
+It connects to a remote Hermes gateway over Tailscale, another private VPN, or your local
+network, and gives you full chat plus the management surface: sessions, models, profiles,
+scheduled jobs, usage analytics, messaging integrations, and settings.
 
 Built with Kotlin and Jetpack Compose (Material 3).
+
+### Credits
+
+Hermes Local is a fork of [**Hermes for Android**](https://github.com/adebnar/hermes-android)
+by Andrew Debnar, and stays under the same [GPL-3.0 licence](LICENSE). The app ID is
+`com.kevinkozel.hermeslocal`, so it installs alongside the original. Bundled fonts (VT323,
+JetBrains Mono) are under the SIL Open Font License; see [`docs/licenses/`](docs/licenses).
 
 ---
 
 ## Download & install
 
-**[⬇️ Download the latest APK](https://github.com/adebnar/hermes-android/releases/latest)**
-
-No build tools or developer setup needed — just grab the signed APK from the
-[latest release](https://github.com/adebnar/hermes-android/releases/latest) and install it
-on your phone:
-
-1. On your Android phone, open the release link above and tap the `.apk` file to download it.
-2. When prompted, allow installs from your browser or Files app ("Install unknown apps").
-3. Open the downloaded `.apk` and tap **Install**.
-4. Launch **Hermes** and complete the one-time [setup](#first-run-setup) — gateway URL plus
-   either a session token (loopback) or a username/password (password-protected dashboard).
-
-> The APK is signed with the project's release key. Because it's installed outside the
-> Play Store, Android may warn about an app from an unknown developer — that's expected.
+No release builds are published yet. Build the APK from source (see [Building](#building))
+and install `app/build/outputs/apk/debug/app-debug.apk` on your phone, or with
+`adb install` over USB. On first launch, complete the one-time [setup](#first-run-setup):
+gateway URL plus either a session token (loopback) or a username/password
+(password-protected dashboard).
 
 ---
 
 ## Screenshots
+
+> These screenshots are from the upstream app and predate the Hermes Local theme.
 
 <p align="center">
   <img src="docs/screenshots/01-chats.png" width="24%" alt="Chats — per-profile accent, tenant chips, grouped sessions, bottom navigation" />
@@ -286,10 +280,8 @@ signed APK and publishes a GitHub Release:
   `releases/latest` keeps pointing at the stable build.
 
 The **beta build installs side-by-side** with production: it has a separate application id
-(`com.hermes.client.beta`) and the label **"Hermes Beta"**, so testers can keep the stable
-app and try betas without losing it. Anyone who wants the newest changes grabs the latest
-*pre-release* APK from the [Releases page](https://github.com/adebnar/hermes-android/releases);
-everyone else gets the stable [latest release](https://github.com/adebnar/hermes-android/releases/latest).
+(`com.kevinkozel.hermeslocal.beta`) and the label **"Hermes Local Beta"**, so testers can keep
+the stable app and try betas without losing it.
 
 **CI signing secrets** — the release workflow signs in CI using these repository secrets
 (*Settings → Secrets and variables → Actions*):
@@ -321,20 +313,17 @@ modes, the private-network/cleartext design, and supply-chain hygiene).
 
 ---
 
-## Support this project
+## Support the original project
 
-If Hermes for Android is useful to you, please consider supporting development:
-
-**[☕ Buy me a coffee on Ko-fi →](https://ko-fi.com/andrew65386)**
-
-[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/andrew65386)
-
-Every contribution helps fund new features and ongoing maintenance. GitHub Sponsors is
-coming soon — until then, Ko-fi is the best way to chip in. Thank you! 🙏
+Hermes Local builds on Andrew Debnar's work. If it's useful to you, consider supporting the
+upstream project on **[Ko-fi](https://ko-fi.com/andrew65386)**.
 
 ---
 
 ## License
+
+Copyright © 2026 Kevin Kozel (Hermes Local changes). Based on Hermes for Android,
+copyright © its original author, Andrew Debnar.
 
 [GNU General Public License v3.0](LICENSE). You are free to use, study, share, and modify
 this software under the terms of the GPL-3.0 — see the [LICENSE](LICENSE) file for the full

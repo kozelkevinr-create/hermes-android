@@ -28,7 +28,7 @@ object CrashReporter {
                     "${pi.versionName} (${pi.longVersionCode})"
                 }.getOrDefault("?")
                 val report = buildString {
-                    appendLine("Hermes Beta — crash report")
+                    appendLine("Hermes Local — crash report")
                     appendLine("app: ${app.packageName} $version")
                     appendLine("android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
                     appendLine("device: ${Build.MANUFACTURER} ${Build.MODEL}")

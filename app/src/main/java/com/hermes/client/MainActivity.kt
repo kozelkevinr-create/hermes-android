@@ -151,7 +151,7 @@ class MainActivity : ComponentActivity() {
     private fun shareCrash(report: String) {
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, "Hermes Beta crash report")
+            putExtra(Intent.EXTRA_SUBJECT, "Hermes Local crash report")
             putExtra(Intent.EXTRA_TEXT, report)
         }
         startActivity(Intent.createChooser(intent, "Share crash report"))

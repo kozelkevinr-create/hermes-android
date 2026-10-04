@@ -40,7 +40,7 @@ class HermesNotifier(private val context: Context) {
     fun serviceNotification(): Notification =
         NotificationCompat.Builder(context, Notif.CHANNEL_SERVICE)
             .setSmallIcon(R.drawable.ic_stat_hermes)
-            .setContentTitle("Hermes")
+            .setContentTitle("Hermes Local")
             .setContentText("Connected — watching for approvals & activity")
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_MIN)

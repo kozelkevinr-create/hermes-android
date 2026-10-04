@@ -30,7 +30,7 @@ import androidx.compose.ui.unit.sp
 fun CrashReportScreen(report: String, onShare: () -> Unit, onDismiss: () -> Unit) {
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().padding(16.dp)) {
-            Text("Hermes Beta crashed", style = MaterialTheme.typography.headlineSmall)
+            Text("Hermes Local crashed", style = MaterialTheme.typography.headlineSmall)
             Spacer(Modifier.height(8.dp))
             Text(
                 "This is the crash details. Tap Share to send it to the developer, then continue.",

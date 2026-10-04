@@ -42,8 +42,13 @@ fun AboutScreen(
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             ListItem(
-                headlineContent = { Text("Hermes Android") },
-                supportingContent = { Text("Version $appVersion") },
+                headlineContent = { Text("Hermes Local") },
+                supportingContent = { Text("Version $appVersion · by Kevin Kozel") },
+            )
+            HorizontalDivider()
+            ListItem(
+                headlineContent = { Text("Based on Hermes for Android") },
+                supportingContent = { Text("By Andrew Debnar (github.com/adebnar/hermes-android) · GPL-3.0") },
             )
             HorizontalDivider()
             ListItem(

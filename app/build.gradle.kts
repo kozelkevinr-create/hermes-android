@@ -25,14 +25,16 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.hermes.client"
+        // Own app ID so Hermes Local installs alongside the upstream Hermes app (Kotlin namespace
+        // stays com.hermes.client to keep upstream merges painless).
+        applicationId = "com.kevinkozel.hermeslocal"
         minSdk = 26
         targetSdk = 37
         versionCode = 56
         versionName = "0.1.52"
         testInstrumentationRunner = "com.hermes.client.HiltTestRunner"
         // App name; the beta build type overrides this so both can be installed at once.
-        manifestPlaceholders["appLabel"] = "Hermes"
+        manifestPlaceholders["appLabel"] = "Hermes Local"
     }
     signingConfigs {
         if (keystorePropsFile.exists()) {
@@ -50,14 +52,14 @@ android {
             // Sign with the release config only when the keystore is present.
             signingConfig = signingConfigs.findByName("release")
         }
-        // Beta channel: a separate applicationId + "Hermes Beta" label so testers can run
+        // Beta channel: a separate applicationId + "Hermes Local Beta" label so testers can run
         // the beta alongside the production app. Cut from the `dev` branch as a GitHub
         // pre-release. Inherits the release signing config.
         create("beta") {
             initWith(getByName("release"))
             applicationIdSuffix = ".beta"
             versionNameSuffix = "-beta"
-            manifestPlaceholders["appLabel"] = "Hermes Beta"
+            manifestPlaceholders["appLabel"] = "Hermes Local Beta"
             signingConfig = signingConfigs.findByName("release")
         }
     }

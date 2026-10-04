@@ -72,7 +72,7 @@ object DebugLog {
         val snapshot = synchronized(lock) { buffer.toList() }
         if (snapshot.isEmpty()) return "(no diagnostic entries)"
         return buildString {
-            append("Hermes diagnostic log — ${snapshot.size} entries\n")
+            append("Hermes Local diagnostic log — ${snapshot.size} entries\n")
             snapshot.forEach { e ->
                 append("${exportFmt.format(Instant.ofEpochMilli(e.timeMillis))} [${e.category}] ${e.message}\n")
             }
