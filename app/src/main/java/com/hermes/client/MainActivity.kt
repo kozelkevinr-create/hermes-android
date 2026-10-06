@@ -14,6 +14,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import com.hermes.client.data.auth.CredentialStore
 import com.hermes.client.data.diagnostics.CrashReporter
@@ -45,6 +46,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var notificationSettings: com.hermes.client.data.repository.NotificationSettings
     @Inject lateinit var chat: com.hermes.client.data.repository.ChatRepository
     @Inject lateinit var pendingShare: com.hermes.client.share.PendingShareStore
+    @Inject lateinit var fileUploader: com.hermes.client.data.files.FileUploader
 
     /**
      * Route requested by a tapped notification (see `HermesNotifier.openIntent`'s
@@ -106,6 +108,13 @@ class MainActivity : ComponentActivity() {
                     CompositionLocalProvider(LocalToolCallTechnical provides technical) {
                         // CRT scanlines over the whole app in the dark (Neon Night) theme.
                         Surface(Modifier.crtScanlines(enabled = dark)) {
+                            // Boot animation gates the first frame of real UI. Kept in activity
+                            // state (not a nav destination) so it can never be navigated back to.
+                            var booted by rememberSaveable { mutableStateOf(false) }
+                            if (!booted) {
+                                com.hermes.client.ui.splash.MatrixSplash(onFinished = { booted = true })
+                                return@Surface
+                            }
                             // If the previous run crashed, show the saved trace first so it can be
                             // shared, then continue into the app once dismissed.
                             var report by remember { mutableStateOf(crashReport) }
@@ -190,6 +199,18 @@ class MainActivity : ComponentActivity() {
             intent?.getStringExtra(Intent.EXTRA_SUBJECT), intent?.getStringExtra(Intent.EXTRA_TEXT),
         )
         val isImage = com.hermes.client.share.isImageShare(intent?.action, intent?.type)
+        // A file share (not plain text, not an image) uploads to the agent's uploads folder rather
+        // than opening a chat — the "send data from my phone" path. Covers single and multi shares.
+        if (text == null && !isImage &&
+            (intent?.action == Intent.ACTION_SEND || intent?.action == Intent.ACTION_SEND_MULTIPLE)
+        ) {
+            val uris = fileShareUris(intent)
+            if (uris.isNotEmpty() && credentialStore.load() != null) {
+                intent.removeExtra(Intent.EXTRA_STREAM)
+                uploadShares(uris)
+                return
+            }
+        }
         val imageUri: android.net.Uri? = if (isImage) {
             if (Build.VERSION.SDK_INT >= 33) {
                 intent?.getParcelableExtra(Intent.EXTRA_STREAM, android.net.Uri::class.java)
@@ -258,6 +279,45 @@ class MainActivity : ComponentActivity() {
                         this@MainActivity, "Couldn't start a chat", android.widget.Toast.LENGTH_SHORT,
                     ).show()
                 }
+        }
+    }
+
+    /** Stream URIs from an ACTION_SEND / ACTION_SEND_MULTIPLE share (SDK-aware extraction). */
+    private fun fileShareUris(intent: Intent): List<android.net.Uri> {
+        return if (intent.action == Intent.ACTION_SEND_MULTIPLE) {
+            if (Build.VERSION.SDK_INT >= 33) {
+                intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, android.net.Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION") intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
+            }.orEmpty()
+        } else {
+            val one = if (Build.VERSION.SDK_INT >= 33) {
+                intent.getParcelableExtra(Intent.EXTRA_STREAM, android.net.Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION") intent.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM)
+            }
+            listOfNotNull(one)
+        }
+    }
+
+    /** Upload shared files to the agent's uploads folder, reporting the outcome via a toast. */
+    private fun uploadShares(uris: List<android.net.Uri>) {
+        android.widget.Toast.makeText(
+            this, "Uploading ${uris.size} file(s) to Hermes…", android.widget.Toast.LENGTH_SHORT,
+        ).show()
+        lifecycleScope.launch {
+            var ok = 0
+            var lastError: String? = null
+            for (uri in uris) {
+                val r = fileUploader.upload(uri)
+                if (r.ok) ok++ else lastError = r.error
+            }
+            val msg = when {
+                ok == uris.size -> "Uploaded $ok file(s) to Hermes"
+                ok > 0 -> "Uploaded $ok of ${uris.size}; last error: $lastError"
+                else -> "Upload failed: ${lastError ?: "unknown error"}"
+            }
+            android.widget.Toast.makeText(this@MainActivity, msg, android.widget.Toast.LENGTH_LONG).show()
         }
     }
 }

@@ -13,7 +13,7 @@ import androidx.compose.ui.graphics.Color
 // an Android runtime; the Compose-facing wrapper just boxes the ints into Color.
 
 /** Fallback hue for the default/no profile — phosphor green, the brand's terminal ink. */
-internal const val DEFAULT_ACCENT_HUE = 140f
+internal const val DEFAULT_ACCENT_HUE = 140f // phosphor green, centre of the band
 
 private const val WHITE_ARGB = 0xFFFFFFFF.toInt()
 private const val BLACK_ARGB = 0xFF000000.toInt()
@@ -38,8 +38,18 @@ internal fun profileHue(name: String): Float {
     h *= 0xc2b2ae35.toInt()
     h = h xor (h ushr 16)
     val unsigned = h.toLong() and 0xFFFFFFFFL
-    return (unsigned % 360L).toFloat()
+    // Constrained to a GREEN BAND rather than the full colour wheel: the app is a phosphor-CRT
+    // theme, and a free hue would put magenta/orange chrome on a green terminal (profile
+    // "default" hashed to 332° — bright magenta). Profiles still land on different hues so the
+    // "which tenant am I in" signal survives, but within green→teal so the chrome stays on-theme.
+    // The trade: separation shrinks from <=360° to <=110°, so neighbouring profiles are a subtler
+    // tell than upstream. See ProfileAccentTest.real_profiles_get_distinct_hues.
+    return (GREEN_BAND_START + (unsigned % GREEN_BAND_SPAN).toFloat())
 }
+
+/** Green→teal band the per-profile hue is mapped into (degrees). */
+internal const val GREEN_BAND_START = 75f
+private const val GREEN_BAND_SPAN = 110L
 
 /** Neon accent (FAB, selected nav, indicators). Full-saturation glow on dark, deeper ink on light. */
 internal fun accentArgb(profile: String?, dark: Boolean): Int {

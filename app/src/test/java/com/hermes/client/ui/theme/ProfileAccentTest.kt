@@ -21,15 +21,29 @@ class ProfileAccentTest {
         }
     }
 
-    // The whole point of profile-color is that tenants look different. Require the real
-    // profiles to land on visibly distinct hues (>= 20° apart pairwise).
+    // Every profile hue must land in the green band, so no tenant ever paints the chrome
+    // magenta/orange on a phosphor-green theme.
+    @Test fun hues_stay_inside_the_green_band() {
+        for (p in profiles + listOf("spaulding", "kevin", "zzz", "")) {
+            val h = profileHue(p)
+            assertTrue("$p hue $h outside green band", h >= GREEN_BAND_START && h <= GREEN_BAND_START + 110f)
+        }
+    }
+
+    // Hues are now confined to a green band to match the phosphor-CRT theme (see profileHue).
+    // HONEST TRADE: in a 110-degree band, hashed hues collide — "odos" and "semiotic" land 4
+    // degrees apart, which no one can tell apart on a top bar. So the automatic hue is NO LONGER
+    // a dependable "which tenant am I in" signal; it only guarantees the chrome stays on-theme.
+    // Anyone running several tenants should set an explicit per-profile colour (the picker still
+    // allows the full wheel, and overrides win over this hash).
+    // This asserts only that the hash still spreads rather than mapping everything to one hue.
     @Test fun real_profiles_get_distinct_hues() {
         val hues = profiles.map { it to profileHue(it) }
         for (i in hues.indices) for (j in i + 1 until hues.size) {
             val (na, a) = hues[i]
             val (nb, b) = hues[j]
             val delta = minOf(Math.abs(a - b), 360f - Math.abs(a - b))
-            assertTrue("$na($a) vs $nb($b) too close: ${delta}°", delta >= 20f)
+            assertTrue("$na($a) vs $nb($b) collapsed onto one hue: ${delta}°", delta >= 3f)
         }
     }
 

@@ -51,9 +51,15 @@ import kotlinx.serialization.Serializable
 @Serializable data class MessagesDto(val messages: List<MessageDto> = emptyList())
 
 @Serializable data class ProfileDto(
+    /** Canonical id — stays "default" for the default profile even after a rename. */
     val name: String,
     @SerialName("is_default") val isDefault: Boolean = false,
-)
+    /** User-facing name. The gateway stores a rename of the default profile here. */
+    @SerialName("display_name") val displayName: String = "",
+) {
+    /** What to show in the UI; falls back to the id when no display name is set. */
+    val label: String get() = displayName.ifBlank { name }
+}
 @Serializable data class ProfilesDto(val profiles: List<ProfileDto> = emptyList())
 @Serializable data class ActiveProfileDto(val active: String? = null, val current: String? = null)
 
@@ -235,4 +241,54 @@ data class ModelOptionDto(
 /** Gateway `projects.project_sessions` result — a single hydrated node (or null). */
 @Serializable data class ProjectSessionsResultDto(
     val project: ProjectNodeDto? = null,
+)
+
+// --- Managed files (dashboard /api/files/*) -------------------------------------------------
+// The gateway is locked to a root via HERMES_DASHBOARD_FILES_ROOT; anything outside returns 403,
+// so the client never has to police paths itself. `root` echoes that locked root back.
+
+@Serializable data class FileEntryDto(
+    val name: String = "",
+    val path: String = "",
+    @SerialName("is_directory") val isDirectory: Boolean = false,
+    val size: Long? = null,
+    @SerialName("mtime") val mtime: Double? = null,
+    @SerialName("mime_type") val mimeType: String? = null,
+)
+
+@Serializable data class FileListDto(
+    val path: String = "",
+    val parent: String? = null,
+    val entries: List<FileEntryDto> = emptyList(),
+    val root: String? = null,
+    @SerialName("locked_root") val lockedRoot: String? = null,
+)
+
+@Serializable data class FileReadDto(
+    val name: String = "",
+    val path: String = "",
+    val size: Long = 0,
+    @SerialName("mime_type") val mimeType: String = "",
+    @SerialName("data_url") val dataUrl: String = "",
+)
+
+// --- Webhooks (/api/webhooks) --------------------------------------------------------------
+
+@Serializable data class WebhookDto(
+    val name: String = "",
+    val description: String = "",
+    val url: String = "",
+    val events: List<String> = emptyList(),
+    val deliver: String = "log",
+    @SerialName("secret_set") val secretSet: Boolean = false,
+    /** Routes are enabled unless explicitly turned off, matching the gateway's default. */
+    val enabled: Boolean = true,
+)
+
+@Serializable data class WebhooksDto(
+    /** Gateway key is "subscriptions", not "webhooks". */
+    val subscriptions: List<WebhookDto> = emptyList(),
+    /** Whether the webhook platform itself is on; routes do nothing while this is false. */
+    val enabled: Boolean = false,
+    @SerialName("base_url") val baseUrl: String = "",
 )

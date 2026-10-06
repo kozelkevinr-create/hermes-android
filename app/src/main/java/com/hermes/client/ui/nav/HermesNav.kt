@@ -45,7 +45,6 @@ import com.hermes.client.ui.components.HealthStrip
 import com.hermes.client.ui.cron.CronDetailScreen
 import com.hermes.client.ui.cron.CronEditScreen
 import com.hermes.client.ui.cron.CronScreen
-import com.hermes.client.ui.management.ManagementScreen
 import com.hermes.client.ui.messaging.MessagingScreen
 import com.hermes.client.ui.messaging.MessagingSetupScreen
 import com.hermes.client.ui.models.ModelsScreen
@@ -60,13 +59,17 @@ import com.hermes.client.ui.settings.SettingsScreen
 import com.hermes.client.ui.setup.SetupScreen
 import com.hermes.client.ui.tools.AgentsToolsScreen
 import com.hermes.client.ui.usage.UsageScreen
+import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.Forum
+import androidx.compose.material.icons.rounded.Psychology
 
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
 
 private val TABS = listOf(
-    Tab("activity", "Home", Icons.Rounded.Home),
-    Tab("sessions", "Chats", Icons.AutoMirrored.Rounded.Chat),
-    Tab("you", "You", Icons.Rounded.Person),
+    Tab("chat_tab", "Chat", Icons.AutoMirrored.Rounded.Chat),
+    Tab("sessions", "Sessions", Icons.Rounded.Forum),
+    Tab("brain", "Brain", Icons.Rounded.Psychology),
+    Tab("oneshot", "Oneshot", Icons.Rounded.Bolt),
 )
 
 /**
@@ -87,7 +90,7 @@ private val TABS = listOf(
 @Composable
 fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsumed: () -> Unit = {}) {
     val nav = rememberNavController()
-    val start = if (hasConfig) "activity" else "setup"
+    val start = if (hasConfig) "chat_tab" else "setup"
 
     // Guard the navigate: a hermes:// deep link is untrusted, and even the notification path could
     // carry a stale/unknown route — an unresolved route must be ignored, never crash.
@@ -151,7 +154,7 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
                             selected = route == tab.route,
                             onClick = { switchTab(tab.route) },
                             icon = {
-                                if (tab.route == "you" && hasConfig && health.isUnhealthy()) {
+                                if (tab.route == "brain" && hasConfig && health.isUnhealthy()) {
                                     BadgedBox(badge = { Badge() }) {
                                         Icon(tab.icon, contentDescription = tab.label)
                                     }
@@ -196,7 +199,63 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
                 )
             }
             composable("activity") { com.hermes.client.ui.activity.MissionControlScreen(onNavigate = push) }
-            composable("you") { YouHubScreen(onNavigate = push) }
+            composable("brain") { BrainHubScreen(onNavigate = push) }
+            // Chat tab opens straight into a new conversation rather than a hub — the common case
+            // is "I want to ask something now", not "browse what I asked before" (that's Sessions).
+            composable("chat_tab") {
+                com.hermes.client.ui.chat.ChatScreen(
+                    // "" is the new-conversation case the chat VM already understands.
+                    sessionId = "",
+                    onMenu = {},
+                    onUnauthorized = onUnauthorized,
+                )
+            }
+            composable("oneshot") { com.hermes.client.ui.oneshot.OneshotScreen() }
+            composable("netops") {
+                com.hermes.client.ui.netops.NetOpsScreen(onBack = back)
+            }
+            composable("webhooks") {
+                com.hermes.client.ui.webhooks.WebhooksScreen(onBack = back)
+            }
+            composable("files") {
+                com.hermes.client.ui.files.FilesScreen(
+                    onBack = back,
+                    onOpenFile = { path ->
+                        nav.navigate("file_edit/" + java.net.URLEncoder.encode(path, "UTF-8"))
+                    },
+                )
+            }
+            // Files rooted at a specific directory (the Obsidian vault shortcut uses this).
+            composable("files_at/{path}") { entry ->
+                val raw = entry.arguments?.getString("path").orEmpty()
+                com.hermes.client.ui.files.FilesScreen(
+                    onBack = back,
+                    onOpenFile = { path ->
+                        nav.navigate("file_view/" + java.net.URLEncoder.encode(path, "UTF-8"))
+                    },
+                    startPath = java.net.URLDecoder.decode(raw, "UTF-8"),
+                    readOnly = true,
+                    // Can't climb above the vault root from the vault shortcut.
+                    boundaryPath = java.net.URLDecoder.decode(raw, "UTF-8"),
+                )
+            }
+            // Read-only viewer, used by the Obsidian vault so phone edits can't race Obsidian's
+            // own autosave or leave uncommitted changes in the vault's git repo.
+            composable("file_view/{path}") { entry ->
+                val raw = entry.arguments?.getString("path").orEmpty()
+                com.hermes.client.ui.files.FileEditorScreen(
+                    path = java.net.URLDecoder.decode(raw, "UTF-8"),
+                    onBack = back,
+                    readOnly = true,
+                )
+            }
+            composable("file_edit/{path}") { entry ->
+                val raw = entry.arguments?.getString("path").orEmpty()
+                com.hermes.client.ui.files.FileEditorScreen(
+                    path = java.net.URLDecoder.decode(raw, "UTF-8"),
+                    onBack = back,
+                )
+            }
 
             // ---- Pushed screens (back arrow) ----
             composable("archived") {
@@ -272,12 +331,6 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
                 com.hermes.client.ui.settings.DiagnosticsScreen(onBack = { nav.popBackStack() })
             }
             composable("settings_about") { AboutScreen(onBack = { nav.popBackStack() }) }
-            composable("management") {
-                ManagementScreen(
-                    onMenu = back,
-                    onNavigate = { dest -> nav.navigate(dest) { launchSingleTop = true } },
-                )
-            }
             composable("session_admin") {
                 SessionAdminScreen(
                     onMenu = back,
