@@ -115,6 +115,8 @@ dependencies {
     implementation(libs.markdown.m3)
     implementation(libs.zxing.embedded)
     implementation(libs.glance.appwidget)
+    implementation(libs.shizuku.api)
+    implementation(libs.shizuku.provider)
 
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)

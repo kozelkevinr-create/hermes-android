@@ -215,7 +215,10 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
                 com.hermes.client.ui.oneshot.OneshotScreen(onOpenPalette = { showPalette = true })
             }
             composable("netops") {
-                com.hermes.client.ui.netops.NetOpsScreen(onBack = back)
+                com.hermes.client.ui.netops.NetOpsScreen(onBack = back, onTools = { push("nettools") })
+            }
+            composable("nettools") {
+                com.hermes.client.ui.netops.NetToolsScreen(onBack = back)
             }
             composable("webhooks") {
                 com.hermes.client.ui.webhooks.WebhooksScreen(onBack = back)

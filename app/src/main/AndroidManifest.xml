@@ -9,6 +9,14 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
+    <queries>
+        <package android:name="moe.shizuku.privileged.api" />
+        <package android:name="com.emanuelef.remote_capture" />
+        <package android:name="com.termux" />
+        <package android:name="com.overlook.android.fing" />
+        <package android:name="net.techet.netanalyzerlite.an" />
+    </queries>
+
     <application
         android:name=".HermesApp"
         android:icon="@mipmap/ic_launcher"
@@ -78,5 +86,12 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:multiprocess="false"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
     </application>
 </manifest>

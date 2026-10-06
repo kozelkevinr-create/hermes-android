@@ -92,6 +92,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             val mode by settingsStore.themeMode.collectAsState(initial = ThemeMode.DARK)
             val amber by settingsStore.amberPalette.collectAsState(initial = false)
+            val soundOn by settingsStore.soundEffects.collectAsState(initial = false)
+            com.hermes.client.ui.theme.SoundFx.enabled = soundOn
             val technical by settingsStore.toolCallTechnical.collectAsState(initial = true)
             val activeProfile by profileManager.active.collectAsState()
             val accentOverrides by profileAccentStore.overrides.collectAsState(initial = emptyMap())

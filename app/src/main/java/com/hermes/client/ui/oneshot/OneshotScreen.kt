@@ -29,6 +29,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,6 +57,8 @@ fun OneshotScreen(
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     var showConfig by remember { mutableStateOf(false) }
+    LaunchedEffect(state.lastTaskId) { if (state.lastTaskId != null) com.hermes.client.ui.theme.SoundFx.blip() }
+    LaunchedEffect(state.error) { if (state.error != null) com.hermes.client.ui.theme.SoundFx.buzz() }
     val savedPrompts by promptStore.prompts.collectAsStateWithLifecycle(initialValue = emptyList())
     // Mic gate: ask once, start recording as soon as it's granted.
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -63,6 +66,7 @@ fun OneshotScreen(
     }
     val context = androidx.compose.ui.platform.LocalContext.current
     fun toggleMic() {
+        com.hermes.client.ui.theme.SoundFx.tick()
         when {
             state.recording -> vm.stopAndTranscribe()
             androidx.core.content.ContextCompat.checkSelfPermission(

@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.AlertDialog
@@ -54,7 +55,7 @@ import com.hermes.client.ui.theme.Neon
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NetOpsScreen(onBack: () -> Unit, vm: NetOpsViewModel = hiltViewModel()) {
+fun NetOpsScreen(onBack: () -> Unit, onTools: () -> Unit = {}, vm: NetOpsViewModel = hiltViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     var showAdd by remember { mutableStateOf(false) }
     // Probe on first open so the board isn't a wall of greys.
@@ -71,6 +72,9 @@ fun NetOpsScreen(onBack: () -> Unit, vm: NetOpsViewModel = hiltViewModel()) {
                     }
                 },
                 actions = {
+                    IconButton(onClick = onTools) {
+                        Icon(Icons.Rounded.Build, contentDescription = "Net tools")
+                    }
                     IconButton(onClick = { vm.checkAll() }) {
                         Icon(Icons.Rounded.Refresh, contentDescription = "Re-check all")
                     }
