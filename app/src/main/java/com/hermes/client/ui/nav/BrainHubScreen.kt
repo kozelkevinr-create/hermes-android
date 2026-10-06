@@ -19,6 +19,7 @@ import androidx.compose.material.icons.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Webhook
 import androidx.compose.material3.HorizontalDivider
@@ -42,8 +43,23 @@ import com.hermes.client.ui.components.HubRow
 private const val OBSIDIAN_VAULT_PATH = "/home/spaulding/stacks/obsidian/vault"
 
 @Composable
-fun BrainHubScreen(onNavigate: (String) -> Unit) {
-    Scaffold(topBar = { HermesTopBar(title = "Brain", subtitle = "What the agent knows and can do") }) { padding ->
+fun BrainHubScreen(onNavigate: (String) -> Unit, onOpenPalette: () -> Unit = {}) {
+    Scaffold(
+        topBar = {
+            HermesTopBar(
+                title = "Brain",
+                subtitle = "What the agent knows and can do",
+                actions = {
+                    androidx.compose.material3.IconButton(onClick = onOpenPalette) {
+                        androidx.compose.material3.Icon(
+                            androidx.compose.material.icons.Icons.Rounded.Search,
+                            contentDescription = "Command palette",
+                        )
+                    }
+                },
+            )
+        },
+    ) { padding ->
         Column(
             Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()),
         ) {

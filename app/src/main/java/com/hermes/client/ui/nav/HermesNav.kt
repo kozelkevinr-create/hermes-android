@@ -104,6 +104,7 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
     val backStackEntry by nav.currentBackStackEntryAsState()
     val route = backStackEntry?.destination?.route
 
+    var showPalette by rememberSaveable { mutableStateOf(false) }
     val shellVm: ShellViewModel = hiltViewModel()
     val health by shellVm.health.collectAsStateWithLifecycle()
     var showHealthSheet by rememberSaveable { mutableStateOf(false) }
@@ -199,7 +200,7 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
                 )
             }
             composable("activity") { com.hermes.client.ui.activity.MissionControlScreen(onNavigate = push) }
-            composable("brain") { BrainHubScreen(onNavigate = push) }
+            composable("brain") { BrainHubScreen(onNavigate = push, onOpenPalette = { showPalette = true }) }
             // Chat tab opens straight into a new conversation rather than a hub — the common case
             // is "I want to ask something now", not "browse what I asked before" (that's Sessions).
             composable("chat_tab") {
@@ -210,7 +211,9 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
                     onUnauthorized = onUnauthorized,
                 )
             }
-            composable("oneshot") { com.hermes.client.ui.oneshot.OneshotScreen() }
+            composable("oneshot") {
+                com.hermes.client.ui.oneshot.OneshotScreen(onOpenPalette = { showPalette = true })
+            }
             composable("netops") {
                 com.hermes.client.ui.netops.NetOpsScreen(onBack = back)
             }
@@ -347,6 +350,13 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
             health = health,
             onRecheck = { shellVm.recheckHealth() },
             onDismiss = { showHealthSheet = false },
+        )
+    }
+
+    if (showPalette) {
+        com.hermes.client.ui.components.CommandPalette(
+            onNavigate = { route -> nav.navigate(route) { launchSingleTop = true } },
+            onDismiss = { showPalette = false },
         )
     }
 }

@@ -107,3 +107,24 @@ val HermesLightColors = lightColorScheme(
     surfaceContainerHigh = Color(0xFFDCE4DE),
     surfaceContainerHighest = Color(0xFFD6DFD8),
 )
+
+// Amber ("monochrome amber CRT") alt-palette — an optional nod to amber phosphor monitors.
+// Derived from the green dark scheme so only the hue-bearing roles change; neutrals/surfaces stay.
+val Amber = Color(0xFFFFB000)
+val HermesAmberDarkColors = HermesDarkColors.copy(
+    primary = Amber,
+    onPrimary = Color(0xFF241A00),
+    primaryContainer = Color(0xFF4A3400),
+    onPrimaryContainer = Color(0xFFFFDF9E),
+    inversePrimary = Color(0xFF6B4E0B),
+    secondary = Color(0xFFFFD27C),
+    onSecondary = Color(0xFF241A00),
+    secondaryContainer = Color(0xFF4A3400),
+    onSecondaryContainer = Color(0xFFFFE8BF),
+    tertiary = Color(0xFFFFC14D),
+    onTertiary = Color(0xFF261900),
+    surfaceTint = Amber,
+    onBackground = Color(0xFFFFE7C8),
+    onSurface = Color(0xFFFFE7C8),
+    outline = Color(0xFF6B5A2E),
+)

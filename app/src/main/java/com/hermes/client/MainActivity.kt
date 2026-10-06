@@ -91,6 +91,7 @@ class MainActivity : ComponentActivity() {
         }
         setContent {
             val mode by settingsStore.themeMode.collectAsState(initial = ThemeMode.DARK)
+            val amber by settingsStore.amberPalette.collectAsState(initial = false)
             val technical by settingsStore.toolCallTechnical.collectAsState(initial = true)
             val activeProfile by profileManager.active.collectAsState()
             val accentOverrides by profileAccentStore.overrides.collectAsState(initial = emptyMap())
@@ -104,7 +105,7 @@ class MainActivity : ComponentActivity() {
             CompositionLocalProvider(
                 com.hermes.client.ui.theme.LocalProfileAccentOverrides provides accentOverrides,
             ) {
-                HermesTheme(darkTheme = dark, profile = activeProfile) {
+                HermesTheme(darkTheme = dark, amber = amber, profile = activeProfile) {
                     CompositionLocalProvider(LocalToolCallTechnical provides technical) {
                         // CRT scanlines over the whole app in the dark (Neon Night) theme.
                         Surface(Modifier.crtScanlines(enabled = dark)) {

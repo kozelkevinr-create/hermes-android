@@ -9,10 +9,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -42,9 +48,29 @@ import com.hermes.client.ui.theme.PanelShape
  * requiring this screen to stay open.
  */
 @Composable
-fun OneshotScreen(vm: OneshotViewModel = hiltViewModel()) {
+fun OneshotScreen(
+    onOpenPalette: () -> Unit = {},
+    vm: OneshotViewModel = hiltViewModel(),
+    promptStore: com.hermes.client.data.repository.PromptStore =
+        com.hermes.client.data.repository.PromptStore(androidx.compose.ui.platform.LocalContext.current),
+) {
     val state by vm.state.collectAsStateWithLifecycle()
     var showConfig by remember { mutableStateOf(false) }
+    val savedPrompts by promptStore.prompts.collectAsStateWithLifecycle(initialValue = emptyList())
+    // Mic gate: ask once, start recording as soon as it's granted.
+    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) vm.startRecording()
+    }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    fun toggleMic() {
+        when {
+            state.recording -> vm.stopAndTranscribe()
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                context, android.Manifest.permission.RECORD_AUDIO,
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED -> vm.startRecording()
+            else -> micPermission.launch(android.Manifest.permission.RECORD_AUDIO)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -52,6 +78,9 @@ fun OneshotScreen(vm: OneshotViewModel = hiltViewModel()) {
                 title = "Oneshot",
                 subtitle = if (state.configured) "Replies arrive via ntfy" else "Bridge not configured",
                 actions = {
+                    IconButton(onClick = onOpenPalette) {
+                        Icon(Icons.Rounded.Search, contentDescription = "Command palette")
+                    }
                     IconButton(onClick = { showConfig = true }) {
                         Icon(Icons.Rounded.Settings, contentDescription = "Bridge settings")
                     }
@@ -63,6 +92,17 @@ fun OneshotScreen(vm: OneshotViewModel = hiltViewModel()) {
             Modifier.padding(padding).fillMaxSize().padding(16.dp),
             verticalArrangement = Arrangement.Top,
         ) {
+            state.todayTokens?.let { tokens ->
+                Text(
+                    "TODAY  ${formatTokens(tokens)} tok" +
+                        (state.todayCost?.let { "  ·  $" + "%.2f".format(it) } ?: ""),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.height(12.dp))
+            }
+
             if (!state.configured) {
                 Surface(
                     color = MaterialTheme.colorScheme.secondaryContainer,
@@ -81,6 +121,23 @@ fun OneshotScreen(vm: OneshotViewModel = hiltViewModel()) {
                 Spacer(Modifier.height(16.dp))
             }
 
+            if (savedPrompts.isNotEmpty()) {
+                Text("QUICK", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.height(4.dp))
+                androidx.compose.foundation.layout.FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    savedPrompts.take(8).forEach { p ->
+                        androidx.compose.material3.AssistChip(
+                            onClick = { vm.onPromptChanged(p.body) },
+                            label = { Text(p.title, maxLines = 1) },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+
             OutlinedTextField(
                 value = state.prompt,
                 onValueChange = vm::onPromptChanged,
@@ -93,6 +150,22 @@ fun OneshotScreen(vm: OneshotViewModel = hiltViewModel()) {
             Spacer(Modifier.height(12.dp))
 
             Row(verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.FilledTonalIconButton(
+                    onClick = { toggleMic() },
+                    enabled = !state.transcribing,
+                ) {
+                    when {
+                        state.transcribing -> CircularProgressIndicator(Modifier.height(18.dp))
+                        state.recording -> Icon(Icons.Rounded.Stop, contentDescription = "Stop and transcribe")
+                        else -> Icon(Icons.Rounded.Mic, contentDescription = "Dictate")
+                    }
+                }
+                Spacer(Modifier.height(0.dp))
+                Text(
+                    if (state.recording) "  Listening… tap to stop  " else "  ",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 Button(
                     onClick = { vm.send() },
                     enabled = state.configured && state.prompt.isNotBlank() && !state.sending,
@@ -110,8 +183,10 @@ fun OneshotScreen(vm: OneshotViewModel = hiltViewModel()) {
             Spacer(Modifier.height(16.dp))
 
             state.lastTaskId?.let {
+                val scheduled = it.startsWith("scheduled")
                 Text(
-                    "Dispatched — task $it. Progress and the result arrive as ntfy notifications.",
+                    if (scheduled) "Recognised as recurring — $it. Manage it under Brain → Scheduled jobs."
+                    else "Dispatched — task $it. Progress and the result arrive as ntfy notifications.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.primary,
                 )
@@ -167,4 +242,10 @@ private fun BridgeConfigDialog(
         confirmButton = { TextButton(onClick = { onSave(url, token) }) { Text("Save") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+private fun formatTokens(n: Long): String = when {
+    n >= 1_000_000 -> "%.1fM".format(n / 1_000_000.0)
+    n >= 1_000 -> "%.1fk".format(n / 1_000.0)
+    else -> n.toString()
 }

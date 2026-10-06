@@ -27,6 +27,11 @@ data class OneshotState(
     val configured: Boolean = false,
     val bridgeUrl: String = "",
     val bridgeToken: String = "",
+    val recording: Boolean = false,
+    val transcribing: Boolean = false,
+    /** Compact "today" usage glance: tokens and cost. Null until loaded / when unavailable. */
+    val todayTokens: Long? = null,
+    val todayCost: Double? = null,
 )
 
 /**
@@ -41,11 +46,25 @@ data class OneshotState(
 class OneshotViewModel @Inject constructor(
     private val store: BridgeConfigStore,
     private val okHttp: OkHttpClient,
+    private val recorder: com.hermes.client.data.audio.AudioRecorder,
+    private val rest: com.hermes.client.data.network.HermesRestApi,
+    private val analytics: com.hermes.client.data.repository.AnalyticsRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(OneshotState())
     val state: StateFlow<OneshotState> = _state.asStateFlow()
 
-    init { refreshConfig() }
+    init { refreshConfig(); loadUsageGlance() }
+
+    private fun loadUsageGlance() {
+        viewModelScope.launch {
+            runCatching { analytics.usage() }.getOrNull()?.daily?.lastOrNull()?.let { day ->
+                _state.value = _state.value.copy(
+                    todayTokens = day.inputTokens + day.outputTokens,
+                    todayCost = day.estimatedCost,
+                )
+            }
+        }
+    }
 
     fun refreshConfig() {
         val cfg = store.load()
@@ -58,6 +77,42 @@ class OneshotViewModel @Inject constructor(
 
     fun onPromptChanged(text: String) {
         _state.value = _state.value.copy(prompt = text, error = null, lastTaskId = null)
+    }
+
+    /** Start capturing audio for voice dispatch. */
+    fun startRecording() {
+        if (_state.value.recording) return
+        _state.value = _state.value.copy(recording = true, error = null)
+        viewModelScope.launch(Dispatchers.IO) { runCatching { recorder.start() } }
+    }
+
+    /** Stop capture and transcribe; the text is appended to the prompt for review before sending. */
+    fun stopAndTranscribe() {
+        if (!_state.value.recording) return
+        _state.value = _state.value.copy(recording = false, transcribing = true)
+        viewModelScope.launch {
+            val rec = withContext(Dispatchers.IO) { runCatching { recorder.stop() }.getOrNull() }
+            if (rec == null) {
+                _state.value = _state.value.copy(transcribing = false, error = "Nothing recorded")
+                return@launch
+            }
+            runCatching { rest.transcribe(com.hermes.client.data.audio.audioDataUrl(rec.bytes, rec.mime), rec.mime) }
+                .onSuccess { text ->
+                    val joined = (_state.value.prompt.trimEnd() + " " + text.trim()).trim()
+                    _state.value = _state.value.copy(transcribing = false, prompt = joined)
+                }
+                .onFailure { e ->
+                    _state.value = _state.value.copy(
+                        transcribing = false,
+                        error = e.message ?: "Transcription failed",
+                    )
+                }
+        }
+    }
+
+    fun cancelRecording() {
+        _state.value = _state.value.copy(recording = false)
+        viewModelScope.launch(Dispatchers.IO) { runCatching { recorder.cancel() } }
     }
 
     fun saveConfig(url: String, token: String) {
@@ -82,7 +137,7 @@ class OneshotViewModel @Inject constructor(
 
     private suspend fun dispatch(baseUrl: String, token: String, prompt: String): String =
         withContext(Dispatchers.IO) {
-            val payload = buildJsonObject { put("prompt", prompt) }
+            val payload = buildJsonObject { put("message", prompt) }
                 .toString().toRequestBody("application/json".toMediaType())
             val req = Request.Builder()
                 .url("${baseUrl.trimEnd('/')}/v1/tasks")

@@ -9,8 +9,8 @@ import org.junit.Test
 class DeepLinkMapperTest {
     @Test fun tab_routes_map() {
         assertEquals("sessions", deepLinkRouteFor("hermes://tab/sessions"))
-        assertEquals("activity", deepLinkRouteFor("hermes://tab/activity"))
-        assertEquals("you", deepLinkRouteFor("hermes://tab/you"))
+        assertEquals("brain", deepLinkRouteFor("hermes://tab/brain"))
+        assertEquals("oneshot", deepLinkRouteFor("hermes://tab/oneshot"))
     }
 
     @Test fun chat_id_maps() {
