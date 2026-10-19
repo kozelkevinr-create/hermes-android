@@ -221,7 +221,7 @@ private class RustTimelineHandle(
     private val timeline: Timeline,
 ) : MatrixTimelineHandle {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val rawUpdates = Channel<List<TimelineDiff>>(Channel.UNLIMITED)
+    private val rawUpdates = ClosableDiffQueue<TimelineDiff> { it.destroyCarriedItems() }
 
     private val _items = MutableStateFlow<List<TimelineEntry>>(emptyList())
     override val items: StateFlow<List<TimelineEntry>> = _items.asStateFlow()
@@ -237,8 +237,9 @@ private class RustTimelineHandle(
 
     private val listener = object : TimelineListener {
         override fun onUpdate(diff: List<TimelineDiff>) {
-            // Never throw on the SDK thread; hand the batch to the collector to map it.
-            rawUpdates.trySend(diff)
+            // Never throw on the SDK thread. If the handle is already closing (or the send fails),
+            // send() discards the batch's items so a late diff is never leaked.
+            rawUpdates.send(diff)
         }
     }
 
@@ -254,7 +255,7 @@ private class RustTimelineHandle(
 
     init {
         scope.launch {
-            for (updates in rawUpdates) {
+            rawUpdates.batches.collect { updates ->
                 try {
                     var reset = false
                     val diffs = ArrayList<ListDiff<TimelineEntry>>(updates.size)
@@ -298,14 +299,14 @@ private class RustTimelineHandle(
         if (closed) return
         closed = true
         repaginator.close()
-        // Cancel subscriptions before destroying, and cancel the collector scope so no mapping
-        // races the teardown.
+        // Cancel subscriptions so no more diffs are handed to us, then stop the collector before
+        // draining, so the drain never races the live collector.
         runCatching { listenerHandle?.cancel() }
         runCatching { paginationHandle?.cancel() }
-        rawUpdates.close()
-        // Destroy any FFI items still queued in diffs the collector never got to, exactly once.
-        drainQueuedDiffs()
         scope.cancel()
+        // Discards anything still buffered (or sent after close) on the calling thread, then
+        // closes the channel; each item is destroyed exactly once.
+        rawUpdates.close()
         runCatching { listenerHandle?.destroy() }
         runCatching { paginationHandle?.destroy() }
         runCatching { timeline.destroy() }
@@ -314,26 +315,22 @@ private class RustTimelineHandle(
         paginationHandle = null
     }
 
-    /** Destroys the [TimelineItem]s carried by every diff still buffered in [rawUpdates]. */
-    private fun drainQueuedDiffs() {
-        while (true) {
-            val updates = rawUpdates.tryReceive().getOrNull() ?: break
-            for (d in updates) {
-                when (d) {
-                    is TimelineDiff.Append -> d.values.forEach { runCatching { it.destroy() } }
-                    is TimelineDiff.Clear -> Unit
-                    is TimelineDiff.PushFront -> runCatching { d.value.destroy() }
-                    is TimelineDiff.PushBack -> runCatching { d.value.destroy() }
-                    is TimelineDiff.PopFront -> Unit
-                    is TimelineDiff.PopBack -> Unit
-                    is TimelineDiff.Insert -> runCatching { d.value.destroy() }
-                    is TimelineDiff.Set -> runCatching { d.value.destroy() }
-                    is TimelineDiff.Remove -> Unit
-                    is TimelineDiff.Truncate -> Unit
-                    is TimelineDiff.Reset -> d.values.forEach { runCatching { it.destroy() } }
-                }
-            }
-        }
+}
+
+/** Destroys every [TimelineItem] carried by a diff the collector never received. */
+private fun TimelineDiff.destroyCarriedItems() {
+    when (this) {
+        is TimelineDiff.Append -> values.forEach { runCatching { it.destroy() } }
+        is TimelineDiff.Clear -> Unit
+        is TimelineDiff.PushFront -> runCatching { value.destroy() }
+        is TimelineDiff.PushBack -> runCatching { value.destroy() }
+        is TimelineDiff.PopFront -> Unit
+        is TimelineDiff.PopBack -> Unit
+        is TimelineDiff.Insert -> runCatching { value.destroy() }
+        is TimelineDiff.Set -> runCatching { value.destroy() }
+        is TimelineDiff.Remove -> Unit
+        is TimelineDiff.Truncate -> Unit
+        is TimelineDiff.Reset -> values.forEach { runCatching { it.destroy() } }
     }
 }
 
