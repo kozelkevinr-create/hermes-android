@@ -209,6 +209,7 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
                 com.hermes.client.ui.matrix.MatrixRoomScreen(
                     roomId = entry.arguments?.getString("roomId") ?: "",
                     onBack = back,
+                    onSetup = { nav.navigate("settings_matrix") { launchSingleTop = true } },
                 )
             }
             composable(NavRoutes.ACTIVITY) { com.hermes.client.ui.activity.MissionControlScreen(onNavigate = push) }
