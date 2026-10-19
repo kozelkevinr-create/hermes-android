@@ -89,6 +89,7 @@ private class FakeTimelineHandle : MatrixTimelineHandle {
     override val items: StateFlow<List<TimelineEntry>> = MutableStateFlow(emptyList())
     override val paginationState: StateFlow<PaginationState> = MutableStateFlow(PaginationState.Idle)
     override suspend fun paginateBackwards(count: Int): Boolean = false
+    override suspend fun sendText(body: String): Boolean = true
     override fun close() {}
 }
 

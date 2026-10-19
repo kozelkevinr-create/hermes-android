@@ -59,6 +59,9 @@ interface MatrixTimelineHandle {
     /** Pages older events in; returns true when the start of the room has been reached. */
     suspend fun paginateBackwards(count: Int): Boolean
 
+    /** Sends [body] as a markdown text message; false when it could not be sent. Never throws. */
+    suspend fun sendText(body: String): Boolean
+
     val paginationState: StateFlow<PaginationState>
 
     /** Cancels subscriptions and destroys every SDK object this handle holds. Idempotent. */

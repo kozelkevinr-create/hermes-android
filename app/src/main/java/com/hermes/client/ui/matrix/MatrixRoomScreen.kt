@@ -1,49 +1,67 @@
 package com.hermes.client.ui.matrix
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.CutCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hermes.client.data.matrix.MessageKind
+import com.hermes.client.data.matrix.MessageSendState
 import com.hermes.client.data.matrix.avatarLetterFor
 import com.hermes.client.ui.components.AccentChrome
 import com.hermes.client.ui.components.EmptyState
@@ -66,6 +84,8 @@ private val OtherBubbleShape = CutCornerShape(topStart = 0.dp, topEnd = 12.dp, b
 fun MatrixRoomScreen(roomId: String, onBack: () -> Unit, onSetup: () -> Unit, vm: MatrixRoomViewModel = hiltViewModel()) {
     val room by vm.room.collectAsStateWithLifecycle()
     val state by vm.state.collectAsStateWithLifecycle()
+    val sending by vm.sending.collectAsStateWithLifecycle()
+    val sendFailed by vm.sendFailed.collectAsStateWithLifecycle()
     val name = room?.name ?: roomId
     Scaffold(
         topBar = {
@@ -90,7 +110,7 @@ fun MatrixRoomScreen(roomId: String, onBack: () -> Unit, onSetup: () -> Unit, vm
         },
         bottomBar = {
             if (state is RoomTimelineState.Ready) {
-                DisabledSendBar()
+                MessageComposer(sending = sending, sendFailed = sendFailed, onSend = vm::send)
             }
         },
     ) { padding ->
@@ -107,14 +127,18 @@ fun MatrixRoomScreen(roomId: String, onBack: () -> Unit, onSetup: () -> Unit, vm
                     message = s.message,
                     onRetry = { vm.retry() },
                 )
-                is RoomTimelineState.Ready -> TimelineContent(s, vm::loadMore)
+                is RoomTimelineState.Ready -> TimelineContent(s, vm::loadMore, onRetrySend = vm::send)
             }
         }
     }
 }
 
 @Composable
-private fun TimelineContent(state: RoomTimelineState.Ready, onLoadMore: () -> Unit) {
+private fun TimelineContent(
+    state: RoomTimelineState.Ready,
+    onLoadMore: () -> Unit,
+    onRetrySend: (String) -> Unit,
+) {
     val listState = rememberLazyListState()
     val rows = state.rows
     val pagination = remember { TimelinePagination() }
@@ -149,7 +173,7 @@ private fun TimelineContent(state: RoomTimelineState.Ready, onLoadMore: () -> Un
             when (row) {
                 is TimelineRow.DayDivider -> CentredLabel(row.label)
                 is TimelineRow.State -> CentredLabel(row.text)
-                is TimelineRow.Message -> MessageRow(row)
+                is TimelineRow.Message -> MessageRow(row, onRetrySend)
             }
         }
         // The footer is the last item, so with reverseLayout it sits at the very top (oldest edge).
@@ -183,12 +207,12 @@ private fun CentredLabel(text: String) {
 }
 
 @Composable
-private fun MessageRow(row: TimelineRow.Message) {
+private fun MessageRow(row: TimelineRow.Message, onRetrySend: (String) -> Unit) {
     when {
-        row.isUtd -> Bubble(row, content = { MutedText("Encrypted message") })
-        row.kind == MessageKind.IMAGE -> Bubble(row, content = { MutedText(attachmentLabel("image", row.body)) })
-        row.kind == MessageKind.FILE -> Bubble(row, content = { MutedText(attachmentLabel("file", row.body)) })
-        else -> Bubble(row, content = { BodyText(row) })
+        row.isUtd -> Bubble(row, onRetrySend, content = { MutedText("Encrypted message") })
+        row.kind == MessageKind.IMAGE -> Bubble(row, onRetrySend, content = { MutedText(attachmentLabel("image", row.body)) })
+        row.kind == MessageKind.FILE -> Bubble(row, onRetrySend, content = { MutedText(attachmentLabel("file", row.body)) })
+        else -> Bubble(row, onRetrySend, content = { BodyText(row) })
     }
 }
 
@@ -209,7 +233,7 @@ private fun MutedText(text: String) {
 }
 
 @Composable
-private fun Bubble(row: TimelineRow.Message, content: @Composable () -> Unit) {
+private fun Bubble(row: TimelineRow.Message, onRetrySend: (String) -> Unit, content: @Composable () -> Unit) {
     val isOwn = row.isOwn
     val bubbleBg = if (isOwn) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
     val shape = if (isOwn) UserBubbleShape else OtherBubbleShape
@@ -255,6 +279,9 @@ private fun Bubble(row: TimelineRow.Message, content: @Composable () -> Unit) {
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                        if (row.isOwn) {
+                            SendStatus(row, onRetrySend)
+                        }
                     }
                 }
             }
@@ -277,17 +304,91 @@ private fun AvatarCircle(name: String) {
 private fun attachmentLabel(prefix: String, filename: String): String =
     if (filename.isBlank()) "[$prefix]" else "[$prefix] $filename"
 
-/** Read-only Phase 3a placeholder bar; sending arrives in 3b. */
+/** Clock while the send is in flight, a tappable "Not sent" that offers a retry when it failed. */
 @Composable
-private fun DisabledSendBar() {
-    Surface(color = MaterialTheme.colorScheme.surfaceVariant) {
-        Text(
-            "Sending arrives in Phase 3b",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
+private fun SendStatus(row: TimelineRow.Message, onRetrySend: (String) -> Unit) {
+    when (row.sendState) {
+        MessageSendState.NOT_SENT_YET -> Icon(
+            Icons.Rounded.Schedule,
+            contentDescription = "Sending",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 4.dp).size(12.dp),
         )
+        MessageSendState.SENDING_FAILED -> {
+            var menu by remember { mutableStateOf(false) }
+            Box {
+                Text(
+                    "Not sent",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.clickable { menu = true }.padding(start = 6.dp),
+                )
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Retry") },
+                        onClick = {
+                            menu = false
+                            onRetrySend(row.body)
+                        },
+                    )
+                }
+            }
+        }
+        MessageSendState.SENT -> Unit
+    }
+}
+
+/** Text composer above the IME / navigation bar. Slash commands are sent as-is for Hermes to parse. */
+@Composable
+private fun MessageComposer(sending: Boolean, sendFailed: Boolean, onSend: (String) -> Unit) {
+    var draft by rememberSaveable { mutableStateOf("") }
+    val canSend = draft.isNotBlank() && !sending
+
+    fun submit() {
+        if (!canSend) return
+        val body = draft
+        draft = ""
+        onSend(body)
+    }
+
+    Surface(color = MaterialTheme.colorScheme.surface) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)),
+        ) {
+            if (sendFailed) {
+                Text(
+                    "Couldn't send",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(start = 16.dp, top = 4.dp),
+                )
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    modifier = Modifier.weight(1f),
+                    placeholder = { Text("Message…") },
+                    maxLines = 5,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { submit() }),
+                )
+                Spacer(Modifier.width(8.dp))
+                IconButton(onClick = { submit() }, enabled = canSend) {
+                    Icon(
+                        Icons.AutoMirrored.Rounded.Send,
+                        contentDescription = "Send",
+                        tint = if (canSend) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                    )
+                }
+            }
+        }
     }
 }
 

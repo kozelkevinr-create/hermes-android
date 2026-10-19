@@ -17,8 +17,14 @@ class TimelinePresentationTest {
     private val locale = Locale.US
     private val nowMs = 1_700_000_000_000L
 
-    private fun msg(id: String, sender: String, ts: Long, isOwn: Boolean = false, body: String = "hi") =
-        TimelineEntry.Message(id, sender, senderName = "", isOwn = isOwn, ts = ts, body = body, isEdited = false, kind = MessageKind.TEXT, sendState = MessageSendState.SENT)
+    private fun msg(
+        id: String,
+        sender: String,
+        ts: Long,
+        isOwn: Boolean = false,
+        body: String = "hi",
+        sendState: MessageSendState = MessageSendState.SENT,
+    ) = TimelineEntry.Message(id, sender, senderName = "", isOwn = isOwn, ts = ts, body = body, isEdited = false, kind = MessageKind.TEXT, sendState = sendState)
 
     private fun messages(entries: List<TimelineEntry>) =
         timelineRows(entries, nowMs, zone, locale).filterIsInstance<TimelineRow.Message>()
@@ -62,6 +68,27 @@ class TimelinePresentationTest {
         val rows = messages(listOf(msg("1", "@me:example.test", nowMs, isOwn = true)))
         assertEquals("You", rows.single().sender)
         assertTrue(rows.single().isOwn)
+    }
+
+    @Test
+    fun own_message_send_state_reaches_the_row() {
+        val rows = messages(
+            listOf(
+                msg("1", "@me:example.test", nowMs, isOwn = true, sendState = MessageSendState.NOT_SENT_YET),
+                msg("2", "@me:example.test", nowMs + 1_000, isOwn = true, sendState = MessageSendState.SENDING_FAILED),
+                msg("3", "@me:example.test", nowMs + 2_000, isOwn = true, sendState = MessageSendState.SENT),
+                msg("4", "alice", nowMs + 3_000, sendState = MessageSendState.SENT),
+            ),
+        )
+        assertEquals(
+            listOf(
+                MessageSendState.NOT_SENT_YET,
+                MessageSendState.SENDING_FAILED,
+                MessageSendState.SENT,
+                MessageSendState.SENT,
+            ),
+            rows.map { it.sendState },
+        )
     }
 
     @Test

@@ -1,6 +1,7 @@
 package com.hermes.client.ui.matrix
 
 import com.hermes.client.data.matrix.MessageKind
+import com.hermes.client.data.matrix.MessageSendState
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -16,6 +17,7 @@ class TimelineRowKeyTest {
         time = "14:05",
         showSender = true,
         isUtd = false,
+        sendState = MessageSendState.SENT,
     )
 
     @Test

@@ -62,6 +62,16 @@ class MatrixRoomViewModel internal constructor(
     private val _state = MutableStateFlow<RoomTimelineState>(RoomTimelineState.Opening)
     val state: StateFlow<RoomTimelineState> = _state.asStateFlow()
 
+    private val _sending = MutableStateFlow(false)
+
+    /** True while a send is in flight, so the composer can disable its send button. */
+    val sending: StateFlow<Boolean> = _sending.asStateFlow()
+
+    private val _sendFailed = MutableStateFlow(false)
+
+    /** True when the last send attempt failed; cleared when the next one starts. */
+    val sendFailed: StateFlow<Boolean> = _sendFailed.asStateFlow()
+
     private var timeline: MatrixTimelineHandle? = null
     private var collectJob: Job? = null
     private var loading = false
@@ -127,6 +137,27 @@ class MatrixRoomViewModel internal constructor(
                 // paginationState settles back to Idle; there is nothing extra to surface.
             } finally {
                 loading = false
+            }
+        }
+    }
+
+    /** Sends [text] (trimmed) as a text message; blank input and overlapping sends are ignored. */
+    fun send(text: String) {
+        val body = text.trim()
+        if (body.isEmpty()) return
+        if (!_sending.compareAndSet(false, true)) return
+        _sendFailed.value = false
+        viewModelScope.launch {
+            try {
+                val handle = timeline
+                val sent = handle != null && handle.sendText(body)
+                if (!sent) _sendFailed.value = true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                _sendFailed.value = true
+            } finally {
+                _sending.value = false
             }
         }
     }

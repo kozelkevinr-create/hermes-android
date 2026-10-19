@@ -53,6 +53,7 @@ import org.matrix.rustcomponents.sdk.TimelineItem
 import org.matrix.rustcomponents.sdk.TimelineItemContent
 import org.matrix.rustcomponents.sdk.TimelineListener
 import org.matrix.rustcomponents.sdk.VirtualTimelineItem
+import org.matrix.rustcomponents.sdk.messageEventContentFromMarkdown
 import uniffi.matrix_sdk.PaginationStatus
 import uniffi.matrix_sdk_base.EncryptionState
 
@@ -332,6 +333,30 @@ private class RustTimelineHandle(
     override suspend fun paginateBackwards(count: Int): Boolean = ffi.use(false) {
         _paginationState.value = PaginationState.Loading
         timeline.paginateBackwards(count.toUShort())
+    }
+
+    override suspend fun sendText(body: String): Boolean = ffi.use(false) {
+        val content = try {
+            messageEventContentFromMarkdown(body)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            DebugLog.log("matrix-timeline", "send content failed: ${e.javaClass.simpleName}")
+            return@use false
+        }
+        try {
+            val handle = timeline.send(content)
+            runCatching { handle.destroy() }
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Never log the body: it is user content.
+            DebugLog.log("matrix-timeline", "send failed: ${e.javaClass.simpleName}")
+            false
+        } finally {
+            runCatching { content.destroy() }
+        }
     }
 
     /** Runs [action] once teardown has fully finished (immediately if it already has). */

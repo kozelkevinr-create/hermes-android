@@ -2,6 +2,7 @@ package com.hermes.client.ui.matrix
 
 import com.hermes.client.data.matrix.ENCRYPTED_PREVIEW
 import com.hermes.client.data.matrix.MessageKind
+import com.hermes.client.data.matrix.MessageSendState
 import com.hermes.client.data.matrix.TimelineEntry
 import com.hermes.client.data.matrix.senderLabel
 import java.time.Instant
@@ -31,6 +32,8 @@ sealed interface TimelineRow {
         /** Show the avatar + name; false for the continuation of a sender group. */
         val showSender: Boolean,
         val isUtd: Boolean,
+        /** Delivery state for own messages; [MessageSendState.SENT] for everyone else's. */
+        val sendState: MessageSendState,
     ) : TimelineRow
 }
 
@@ -79,6 +82,7 @@ fun timelineRows(
                     isEdited = e.isEdited,
                     kind = e.kind,
                     isUtd = false,
+                    sendState = e.sendState,
                     grouped = isSameGroup(e.sender, e.ts, lastSender, lastTs),
                     zone,
                     locale,
@@ -97,6 +101,7 @@ fun timelineRows(
                     isEdited = false,
                     kind = MessageKind.OTHER,
                     isUtd = true,
+                    sendState = MessageSendState.SENT,
                     grouped = isSameGroup(e.sender, e.ts, lastSender, lastTs),
                     zone,
                     locale,
@@ -119,6 +124,7 @@ private fun messageRow(
     isEdited: Boolean,
     kind: MessageKind,
     isUtd: Boolean,
+    sendState: MessageSendState,
     grouped: Boolean,
     zone: ZoneId,
     locale: Locale,
@@ -132,6 +138,7 @@ private fun messageRow(
     time = formatTimelineTime(ts, zone, locale),
     showSender = !grouped,
     isUtd = isUtd,
+    sendState = sendState,
 )
 
 private fun isSameGroup(sender: String, ts: Long, lastSender: String?, lastTs: Long?): Boolean =

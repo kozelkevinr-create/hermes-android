@@ -7,12 +7,15 @@ import com.hermes.client.data.matrix.MessageKind
 import com.hermes.client.data.matrix.MessageSendState
 import com.hermes.client.data.matrix.PaginationState
 import com.hermes.client.data.matrix.TimelineEntry
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -32,6 +35,16 @@ private class FakeTimeline : MatrixTimelineHandle {
     var closed = false
     var pages = 0
     var nextAtStart = false
+
+    val sent = mutableListOf<String>()
+    var sendResult = true
+    var sendGate: CompletableDeferred<Unit>? = null
+
+    override suspend fun sendText(body: String): Boolean {
+        sent += body
+        sendGate?.await()
+        return sendResult
+    }
 
     override suspend fun paginateBackwards(count: Int): Boolean {
         pages++
@@ -146,6 +159,79 @@ class MatrixRoomViewModelTest {
         // At the start, no further page is requested.
         vm.loadMore()
         assertEquals(2, timeline.pages)
+    }
+
+    @Test
+    fun send_trims_the_text_and_reports_success() = runTest {
+        rooms.value = listOf(readySummary())
+        val timeline = FakeTimeline()
+        nextTimeline = timeline
+        matrix.value = MatrixState.Ready("@a:example.test", "D", "https://hs", "@bot:example.test")
+        val vm = vm()
+
+        vm.send("  hello there  ")
+        advanceUntilIdle()
+
+        assertEquals(listOf("hello there"), timeline.sent)
+        assertFalse(vm.sending.value)
+        assertFalse(vm.sendFailed.value)
+    }
+
+    @Test
+    fun send_failure_is_surfaced() = runTest {
+        rooms.value = listOf(readySummary())
+        val timeline = FakeTimeline()
+        timeline.sendResult = false
+        nextTimeline = timeline
+        matrix.value = MatrixState.Ready("@a:example.test", "D", "https://hs", "@bot:example.test")
+        val vm = vm()
+
+        vm.send("hello")
+        advanceUntilIdle()
+
+        assertEquals(listOf("hello"), timeline.sent)
+        assertFalse(vm.sending.value)
+        assertTrue(vm.sendFailed.value)
+    }
+
+    @Test
+    fun blank_input_is_ignored() = runTest {
+        rooms.value = listOf(readySummary())
+        val timeline = FakeTimeline()
+        nextTimeline = timeline
+        matrix.value = MatrixState.Ready("@a:example.test", "D", "https://hs", "@bot:example.test")
+        val vm = vm()
+
+        vm.send("   \n\t ")
+        advanceUntilIdle()
+
+        assertTrue(timeline.sent.isEmpty())
+        assertFalse(vm.sending.value)
+        assertFalse(vm.sendFailed.value)
+    }
+
+    @Test
+    fun a_second_send_while_one_is_in_flight_is_ignored() = runTest {
+        rooms.value = listOf(readySummary())
+        val timeline = FakeTimeline()
+        val gate = CompletableDeferred<Unit>()
+        timeline.sendGate = gate
+        nextTimeline = timeline
+        matrix.value = MatrixState.Ready("@a:example.test", "D", "https://hs", "@bot:example.test")
+        val vm = vm()
+
+        vm.send("first")
+        runCurrent()
+        assertTrue(vm.sending.value)
+
+        vm.send("second")
+        runCurrent()
+        assertEquals(listOf("first"), timeline.sent)
+
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(listOf("first"), timeline.sent)
+        assertFalse(vm.sending.value)
     }
 
     @Test
