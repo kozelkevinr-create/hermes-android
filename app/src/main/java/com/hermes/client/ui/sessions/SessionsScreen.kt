@@ -133,7 +133,7 @@ fun SessionsScreen(
         }
     }
 
-    // Re-fetch on every resume — notably when returning from a chat. The "sessions" nav entry
+    // Re-fetch on every resume — notably when returning from a chat. The "gateway_sessions" nav entry
     // (and its ViewModel) stays alive across navigation, so init() runs only once; without this
     // a session created or updated while in a chat never appears until a profile switch or app
     // restart. Mirrors the same ON_RESUME refresh used by CronScreen.
@@ -145,7 +145,7 @@ fun SessionsScreen(
         topBar = {
             Column {
                 com.hermes.client.ui.components.HermesTopBar(
-                    title = "Chats",
+                    title = "Sessions",
                     navigationIcon = {
                         IconButton(onClick = onMenu) {
                             Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")

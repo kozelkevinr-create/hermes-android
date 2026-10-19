@@ -36,7 +36,7 @@ gateway URL plus either a session token (loopback) or a username/password
 > These screenshots are from the upstream app and predate the Hermes Local theme.
 
 <p align="center">
-  <img src="docs/screenshots/01-chats.png" width="24%" alt="Chats — per-profile accent, tenant chips, grouped sessions, bottom navigation" />
+  <img src="docs/screenshots/01-chats.png" width="24%" alt="Chats — Matrix room list, bottom navigation" />
   <img src="docs/screenshots/02-mission-control.png" width="24%" alt="Agent Activity — live Mission Control feed merging conversations and cron" />
   <img src="docs/screenshots/03-chat.png" width="24%" alt="Chat — hybrid bubbles, markdown, and copyable code blocks" />
   <img src="docs/screenshots/04-profiles.png" width="24%" alt="You — per-profile accent colours and the accent picker" />
@@ -60,12 +60,13 @@ gateway URL plus either a session token (loopback) or a username/password
   with quick links to Cron/Messaging/Usage/Agents; completed runs open their output.
   **Profile-spatial**: swipe left/right to move between tenants' activity, each painted in
   its own accent.
-- **Sessions** — grouped by workspace with collapsible headers, **search** (instant title
-  filter + gateway message-content search), pinning, and **archive / unarchive / delete**
-  (swipe a row to archive; an Archived view from the top bar), plus a session-admin view.
-  Opening a session lands on the newest reply.
-- **Profiles** — switch the active tenant from a shared chip switcher on both the Chats and
-  Agent Activity tabs, or manage them from the **You** tab; the active profile tints the chrome.
+- **Sessions** — the gateway session list under **Settings → Sessions**, grouped by workspace
+  with collapsible headers, **search** (instant title filter + gateway message-content search),
+  pinning, and **archive / unarchive / delete** (swipe a row to archive; an Archived view from
+  the top bar), plus a session-admin view. Opening a session lands on the newest reply.
+- **Profiles** — switch the active tenant from a shared chip switcher on both the gateway
+  Sessions screen and the Agent Activity tab, or manage them from the **You** tab; the active
+  profile tints the chrome.
 - **Models** — switch the active model on the fly from the chat top bar.
 - **Cron** — list, create, edit, pause/resume, run-now, and delete scheduled jobs, with
   next-run times and run history.
