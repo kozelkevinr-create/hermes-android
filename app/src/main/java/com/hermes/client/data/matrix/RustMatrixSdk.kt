@@ -10,6 +10,9 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import org.matrix.rustcomponents.sdk.Client
 import org.matrix.rustcomponents.sdk.ClientBuilder
 import org.matrix.rustcomponents.sdk.ClientSessionDelegate
+import org.matrix.rustcomponents.sdk.LatestEventValue
+import org.matrix.rustcomponents.sdk.MsgLikeKind
+import org.matrix.rustcomponents.sdk.ProfileDetails
 import org.matrix.rustcomponents.sdk.Room
 import org.matrix.rustcomponents.sdk.RoomList
 import org.matrix.rustcomponents.sdk.RoomListDynamicEntriesController
@@ -24,6 +27,7 @@ import org.matrix.rustcomponents.sdk.SlidingSyncVersionBuilder
 import org.matrix.rustcomponents.sdk.SqliteStoreBuilder
 import org.matrix.rustcomponents.sdk.SyncService
 import org.matrix.rustcomponents.sdk.TaskHandle
+import org.matrix.rustcomponents.sdk.TimelineItemContent
 import uniffi.matrix_sdk_base.EncryptionState
 
 /** [MatrixSdk] over the matrix-rust-sdk UniFFI bindings. */
@@ -166,12 +170,18 @@ private suspend fun Room.toSummary(): MatrixRoomSummary {
     return try {
         val info = roomInfo()
         try {
+            val name = info.displayName ?: info.rawName ?: info.id
+            val activity = latestActivity()
             MatrixRoomSummary(
                 id = info.id,
-                name = info.displayName ?: info.rawName ?: info.id,
+                name = name,
                 isEncrypted = info.encryptionState == EncryptionState.ENCRYPTED,
                 unread = info.numUnreadMessages.toLong(),
                 isDirect = info.isDirect,
+                lastMessagePreview = activity.preview,
+                lastMessageSender = activity.sender,
+                lastActivityTs = activity.ts,
+                avatarLetter = avatarLetterFor(name),
             )
         } finally {
             info.destroy()
@@ -179,7 +189,58 @@ private suspend fun Room.toSummary(): MatrixRoomSummary {
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
-        MatrixRoomSummary(roomId, roomId, isEncrypted = false, unread = 0, isDirect = false)
+        MatrixRoomSummary(roomId, roomId, isEncrypted = false, unread = 0, isDirect = false, avatarLetter = avatarLetterFor(roomId))
+    }
+}
+
+/** The room's latest event as the room list shows it. Any failure reads as "no activity". */
+private class LatestActivity(val preview: String?, val sender: String?, val ts: Long?) {
+    companion object {
+        val NONE = LatestActivity(null, null, null)
+    }
+}
+
+private suspend fun Room.latestActivity(): LatestActivity = try {
+    val latest = latestEvent()
+    try {
+        latest.toActivity()
+    } finally {
+        latest.destroy()
+    }
+} catch (e: CancellationException) {
+    throw e
+} catch (e: Exception) {
+    LatestActivity.NONE
+}
+
+private fun LatestEventValue.toActivity(): LatestActivity = when (this) {
+    is LatestEventValue.Remote -> eventActivity(sender, timestamp.toLong(), profile, content, isOwn)
+    is LatestEventValue.Local -> eventActivity(sender, timestamp.toLong(), profile, content, isOwn = true)
+    is LatestEventValue.RemoteInvite -> LatestActivity(null, null, timestamp.toLong())
+    else -> LatestActivity.NONE
+}
+
+private fun eventActivity(
+    sender: String,
+    ts: Long,
+    profile: ProfileDetails,
+    content: TimelineItemContent,
+    isOwn: Boolean,
+): LatestActivity {
+    val displayName = (profile as? ProfileDetails.Ready)?.displayName
+    return LatestActivity(content.previewOrNull(), senderLabel(sender, displayName, isOwn), ts)
+}
+
+/** Plain-text preview of an event's content, or null for state and membership events. */
+private fun TimelineItemContent.previewOrNull(): String? {
+    val msgLike = this as? TimelineItemContent.MsgLike ?: return null
+    return when (val kind = msgLike.content.kind) {
+        is MsgLikeKind.Message -> previewText(kind.content.body)
+        is MsgLikeKind.UnableToDecrypt -> ENCRYPTED_PREVIEW
+        is MsgLikeKind.Redacted -> "Message deleted"
+        is MsgLikeKind.Poll -> previewText(kind.question)
+        is MsgLikeKind.Sticker -> previewText(kind.body)
+        else -> null
     }
 }
 

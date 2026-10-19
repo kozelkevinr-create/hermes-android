@@ -7,6 +7,14 @@ data class MatrixRoomSummary(
     val isEncrypted: Boolean,
     val unread: Long,
     val isDirect: Boolean,
+    /** Plain-text, single-line, length-capped preview of the latest event; null when there is none. */
+    val lastMessagePreview: String? = null,
+    /** Human label for the latest event's sender ("You" for own events); null when there is none. */
+    val lastMessageSender: String? = null,
+    /** Epoch millis of the latest event; null when there is none. */
+    val lastActivityTs: Long? = null,
+    /** Single uppercase letter for the row's avatar circle. */
+    val avatarLetter: String = "#",
 )
 
 /**
