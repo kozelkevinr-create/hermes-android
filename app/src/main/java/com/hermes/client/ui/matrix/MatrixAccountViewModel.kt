@@ -33,6 +33,7 @@ data class MatrixAccountUiState(
     val form: MatrixFormState = MatrixFormState(),
     val account: MatrixState = MatrixState.LoggedOut,
     val roomCount: Int = 0,
+    val loginError: String? = null,
 )
 
 @HiltViewModel
@@ -49,8 +50,8 @@ class MatrixAccountViewModel @Inject constructor(
     )
 
     val state: StateFlow<MatrixAccountUiState> =
-        combine(form, manager.state, manager.rooms) { f, s, r ->
-            MatrixAccountUiState(f, s, r.size)
+        combine(form, manager.state, manager.rooms, manager.loginError) { f, s, r, e ->
+            MatrixAccountUiState(f, s, r.size, e)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MatrixAccountUiState(form.value))
 
     fun onHomeserver(v: String) = form.update { it.copy(homeserver = v.trim()) }

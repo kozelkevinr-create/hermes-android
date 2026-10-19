@@ -30,6 +30,7 @@ private class FakeHandle(
     private val restoreError: Throwable? = null,
     private val syncError: Throwable? = null,
     private val restoreGate: CompletableDeferred<Unit>? = null,
+    private val loginGate: CompletableDeferred<Unit>? = null,
 ) : MatrixClientHandle {
     val diffs = Channel<List<ListDiff<MatrixRoomSummary>>>(Channel.UNLIMITED)
     override val roomDiffs: Flow<List<ListDiff<MatrixRoomSummary>>> = diffs.receiveAsFlow()
@@ -38,6 +39,7 @@ private class FakeHandle(
 
     override suspend fun login(username: String, password: String, deviceName: String): MatrixSessionData {
         log += "login:$username"
+        loginGate?.await()
         loginError?.let { throw it }
         return sampleSession(token = "tok-$username")
     }
@@ -280,6 +282,66 @@ class MatrixClientManagerTest {
         m.restoreOnStart().join()
         assertFalse((m.state.value as MatrixState.RestoreFailed).retryable)
         assertNotNull(store.load())
+    }
+
+    @Test fun failed_login_from_restore_failed_keeps_retry_available() = runTest {
+        store.save(MatrixAccount(sampleSession("old-tok"), "@bot:example.test"))
+        var restoreFails = true
+        sdk.next = {
+            FakeHandle(
+                log,
+                restoreError = if (restoreFails) RuntimeException("offline") else null,
+                loginError = RuntimeException("bad creds"),
+            )
+        }
+        val m = manager()
+        m.restoreOnStart().join()
+        m.doLogin().join()
+        assertTrue(m.state.value is MatrixState.RestoreFailed)
+        assertTrue(m.loginError.value!!.contains("bad creds"))
+        restoreFails = false
+        m.restoreOnStart().join()
+        assertTrue(m.state.value is MatrixState.Ready)
+    }
+
+    @Test fun restore_is_allowed_again_after_a_login_error() = runTest {
+        sdk.next = { FakeHandle(log, loginError = RuntimeException("bad creds")) }
+        val m = manager()
+        m.doLogin().join()
+        assertTrue(m.state.value is MatrixState.Error)
+        store.save(MatrixAccount(sampleSession(), "@bot:example.test"))
+        sdk.next = { FakeHandle(log) }
+        m.restoreOnStart().join()
+        assertTrue(m.state.value is MatrixState.Ready)
+    }
+
+    @Test fun blank_password_message_is_shown_in_every_state() = runTest {
+        store.save(MatrixAccount(sampleSession(), "@bot:example.test"))
+        sdk.next = { FakeHandle(log, restoreError = RuntimeException("offline")) }
+        val m = manager()
+        m.doLogin(pw = "").join()
+        assertEquals("A password is required", m.loginError.value)
+        m.restoreOnStart().join()
+        assertTrue(m.state.value is MatrixState.RestoreFailed)
+        m.doLogin(pw = "").join()
+        assertEquals("A password is required", m.loginError.value)
+        assertTrue(m.state.value is MatrixState.RestoreFailed)
+    }
+
+    @Test fun logout_preempts_a_running_login_and_queued_ones() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        sdk.next = { FakeHandle(log, loginGate = gate) }
+        val m = manager()
+        val first = m.doLogin()
+        val queued = m.doLogin(user = "bob")
+        runCurrent()
+        assertEquals(MatrixState.LoggingIn, m.state.value)
+        m.logout().join()
+        first.join(); queued.join()
+        assertEquals(MatrixState.LoggedOut, m.state.value)
+        assertNull(store.load())
+        assertEquals(1, sdk.handles.size)
+        assertTrue(sdk.handles.single().closed)
     }
 
     @Test fun relogin_after_failed_restore_that_fails_keeps_the_saved_session() = runTest {

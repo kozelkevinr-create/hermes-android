@@ -4,6 +4,7 @@ import com.hermes.client.data.diagnostics.DebugLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -61,9 +62,16 @@ class MatrixClientManager(
     /** Immutable snapshots; replaced wholesale, never mutated. */
     val rooms: StateFlow<List<MatrixRoomSummary>> = _rooms.asStateFlow()
 
+    private val _loginError = MutableStateFlow<String?>(null)
+
+    /** Why the last login attempt was rejected or failed (redacted); shown next to the form. */
+    val loginError: StateFlow<String?> = _loginError.asStateFlow()
+
     private val lock = Mutex()
     private val managerScope = CoroutineScope(SupervisorJob() + dispatcher)
-    private var activeOp: Job? = null
+
+    // Every in-flight login/restore/logout job, so logout and shutdown can cancel all of them.
+    private val ops = mutableSetOf<Job>()
 
     // Session-lifetime scope for the room-list collector; replaced per client.
     private var scope: CoroutineScope? = null
@@ -83,7 +91,7 @@ class MatrixClientManager(
 
     /** Server logout (best effort), then stop, destroy and wipe everything local. Preempts a running login/restore. */
     fun logout(): Job {
-        activeOp?.cancel()
+        cancelAllOps()
         return launchOp {
             withContext(NonCancellable) {
                 handle?.let { h ->
@@ -98,6 +106,7 @@ class MatrixClientManager(
                     runCatching { storeDir.deleteRecursively() }
                     store.clear()
                 }
+                _loginError.value = null
                 _state.value = MatrixState.LoggedOut
             }
         }
@@ -105,7 +114,7 @@ class MatrixClientManager(
 
     /** Stops the client but keeps the saved session (for process/app teardown). */
     suspend fun shutdown() {
-        activeOp?.cancel()
+        cancelAllOps()
         lock.withLock {
             withContext(NonCancellable) { teardown() }
             _state.value = MatrixState.LoggedOut
@@ -113,27 +122,36 @@ class MatrixClientManager(
     }
 
     private fun launchOp(block: suspend () -> Unit): Job {
-        val job = managerScope.launch { lock.withLock { block() } }
-        activeOp = job
+        val job = managerScope.launch(start = CoroutineStart.LAZY) { lock.withLock { block() } }
+        synchronized(ops) { ops += job }
+        job.invokeOnCompletion { synchronized(ops) { ops -= job } }
+        job.start()
         return job
     }
 
+    private fun cancelAllOps() {
+        val running = synchronized(ops) { ops.toList() }
+        running.forEach { it.cancel() }
+    }
+
     private suspend fun doLogin(homeserver: String, username: String, password: String, botMxid: String, caDer: ByteArray?) {
+        if (password.isBlank()) {
+            reject(PASSWORD_REQUIRED)
+            return
+        }
         when (_state.value) {
             MatrixState.LoggingIn, MatrixState.Restoring, is MatrixState.Ready -> return
             else -> Unit
         }
-        if (password.isBlank()) {
-            if (_state.value == MatrixState.LoggedOut) _state.value = MatrixState.Error("A password is required")
-            return
-        }
         val before = _state.value
+        _loginError.value = null
         _state.value = MatrixState.LoggingIn
         val old = io { store.load() }
         var h: MatrixClientHandle? = null
         var newDir: File? = null
         var serverLoggedIn = false
         var saved = false
+        var committed = false
         try {
             val url = homeserver.trim().trimEnd('/')
             require(url.startsWith("http://") || url.startsWith("https://")) {
@@ -151,8 +169,16 @@ class MatrixClientManager(
             io { store.save(account) }
             saved = true
             activate(h, account)
-            if (old != null && old.storeSlot != slot) io { File(storeDir, old.storeSlot).deleteRecursively() }
+            committed = true
+            // From here on the login is done; a cancel must not roll it back.
+            if (old != null && old.storeSlot != slot) {
+                withContext(NonCancellable) { io { runCatching { File(storeDir, old.storeSlot).deleteRecursively() } } }
+            }
         } catch (e: Throwable) {
+            if (committed) {
+                if (e is CancellationException) throw e
+                return
+            }
             withContext(NonCancellable) {
                 // Don't leave an orphaned device behind on the server.
                 if (serverLoggedIn) {
@@ -173,13 +199,25 @@ class MatrixClientManager(
                 _state.value = if (before == MatrixState.LoggingIn) MatrixState.LoggedOut else before
                 throw e
             }
-            _state.value = MatrixState.Error(describe(e))
+            // Keep Retry/Discard reachable: a failed login must not hide a saved, restorable session.
+            val msg = describe(e)
+            _loginError.value = msg
+            _state.value = if (before is MatrixState.RestoreFailed) before else MatrixState.Error(msg)
+        }
+    }
+
+    /** Rejects a login without touching a session: message always shown; state only if nothing is saved/live. */
+    private fun reject(message: String) {
+        _loginError.value = message
+        when (_state.value) {
+            MatrixState.LoggedOut, is MatrixState.Error -> _state.value = MatrixState.Error(message)
+            else -> Unit
         }
     }
 
     private suspend fun doRestore() {
         when (_state.value) {
-            MatrixState.LoggedOut, is MatrixState.RestoreFailed -> Unit
+            MatrixState.LoggedOut, is MatrixState.Error, is MatrixState.RestoreFailed -> Unit
             else -> return
         }
         val account = io { store.load() } ?: return
@@ -252,6 +290,7 @@ class MatrixClientManager(
     private fun describe(e: Throwable): String = redactedCauseChain(e, redact)
 
     companion object {
+        private const val PASSWORD_REQUIRED = "A password is required"
         private const val DEVICE_NAME = "Hermes Android"
         private const val LOGOUT_TIMEOUT_MS = 10_000L
         private const val SLOT_A = "s0"

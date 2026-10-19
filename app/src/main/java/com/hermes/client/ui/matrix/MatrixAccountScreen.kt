@@ -147,13 +147,11 @@ private fun LoginForm(ui: MatrixAccountUiState, vm: MatrixAccountViewModel, onPi
         onClick = vm::login,
         enabled = !busy && f.homeserver.isNotBlank() && f.username.isNotBlank() && f.password.isNotEmpty(),
     ) { Text("Log in") }
-    val status = when (val s = ui.account) {
+    val status = when (ui.account) {
         MatrixState.LoggingIn -> "Logging in…"
         MatrixState.Restoring -> "Restoring session…"
-        is MatrixState.Error -> s.message
         else -> null
     }
-    status?.let {
-        Text(it, color = if (ui.account is MatrixState.Error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
-    }
+    status?.let { Text(it) }
+    ui.loginError?.takeIf { !busy }?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 }
