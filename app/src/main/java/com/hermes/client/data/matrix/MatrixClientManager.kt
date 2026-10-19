@@ -291,7 +291,7 @@ class MatrixClientManager(
 
     companion object {
         private const val PASSWORD_REQUIRED = "A password is required"
-        private const val DEVICE_NAME = "Hermes Android"
+        private const val DEVICE_NAME = "Hermes Local"
         private const val LOGOUT_TIMEOUT_MS = 10_000L
         private const val SLOT_A = "s0"
         private const val SLOT_B = "s1"

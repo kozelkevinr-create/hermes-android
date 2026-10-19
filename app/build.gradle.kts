@@ -62,6 +62,9 @@ android {
     }
     buildTypes {
         debug {
+            // Installs side by side with the real Hermes Local (com.kevinkozel.hermeslocal).
+            applicationIdSuffix = ".debug"
+            manifestPlaceholders["appLabel"] = "Hermes Local Debug"
             // matrix-rust-sdk ships a ~40-75 MB native lib per ABI; keep only the 64-bit ABIs
             // (arm64 devices + x86_64 emulators). Release ABI splits are Phase 1b.
             ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
