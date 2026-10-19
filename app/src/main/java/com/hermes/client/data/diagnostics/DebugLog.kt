@@ -79,8 +79,35 @@ object DebugLog {
         }
     }
 
+    // Matrix credentials that can show up in SDK / HTTP traces: bearer headers and
+    // access_token / refresh_token / password fields (JSON, query string or key=value).
+    // "Authorization: <scheme> <credential>" headers: the whole credential after the optional scheme
+    // is masked. Backslash-escaped JSON keys (\"authorization\":\"...\") are matched too; the
+    // credential stops at a backslash or quote so it never swallows the escaping.
+    private val authHeaderRegex =
+        Regex("""(?i)(authorization\\*["']?\s*[:=]\s*\\*["']?(?:(?:bearer|basic|digest|negotiate|token)\s+)?)[^\s"',}\\]+""")
+    // A bare "Bearer <token>": the token must be 8+ token characters containing a digit or
+    // punctuation, so prose like "bearer of bad news" is left alone.
+    private val bearerRegex =
+        Regex("(?i)\\b(bearer\\s+)(?=[A-Za-z0-9._~+/=-]*[0-9._~+/=-])[A-Za-z0-9._~+/=-]{8,}")
+    private const val SECRET_KEYS =
+        "(?:access_token|refresh_token|password|login_token|loginToken|id_token|client_secret|recovery_key)"
+    // Quoted values, plain or backslash-escaped JSON (e.g. password\":\"x). The opening quote and
+    // its backslash prefix are captured, and the value runs only up to the SAME quote with the SAME
+    // backslash prefix, so "it's a pw" is masked whole and an inner \" does not end the match early.
+    // (?s): values spanning several lines are masked too.
+    private val quotedSecretRegex =
+        Regex("""(?is)($SECRET_KEYS\\*["']?\s*[:=]\s*(?<bs>\\*)(?<q>["']))(?:(?!(?<!\\)\k<bs>\k<q>).)*""")
+    // key=value / key: value with no quotes (query strings, plain logs).
+    private val bareSecretRegex = Regex("(?i)($SECRET_KEYS\\s*[:=]\\s*)(?![\\\\\"'])[^\\s&,}\"']+")
+
     fun redact(message: String): String {
-        val token = tokenToRedact ?: return message
-        return message.replace(token, "***")
+        var out = message
+        tokenToRedact?.let { out = out.replace(it, "***") }
+        return out
+            .replace(authHeaderRegex, "$1***")
+            .replace(bearerRegex, "$1***")
+            .replace(quotedSecretRegex, "$1***")
+            .replace(bareSecretRegex, "$1***")
     }
 }

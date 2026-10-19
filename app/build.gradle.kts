@@ -47,6 +47,11 @@ android {
         }
     }
     buildTypes {
+        debug {
+            // The debug-only Matrix spike pulls in matrix-rust-sdk, which ships a ~40-75 MB native
+            // lib per ABI; keep only the 64-bit ABIs (arm64 devices + x86_64 emulators).
+            ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+        }
         release {
             isMinifyEnabled = false
             // Sign with the release config only when the keystore is present.
@@ -115,6 +120,10 @@ dependencies {
     implementation(libs.markdown.m3)
     implementation(libs.zxing.embedded)
     implementation(libs.glance.appwidget)
+
+    // Matrix spike (src/debug only): the SDK and its Android TLS-verifier shim stay out of release.
+    debugImplementation(libs.matrix.rust.sdk)
+    debugImplementation(libs.rustls.platform.verifier)
 
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)

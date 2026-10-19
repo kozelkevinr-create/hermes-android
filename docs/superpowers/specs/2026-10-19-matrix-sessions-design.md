@@ -1,0 +1,120 @@
+# Matrix Sessions — Design
+
+**Date:** 2026-10-19
+**Status:** Phase 0 (spike) implemented; phases 1-7 planned
+**Branch:** `feature/matrix-sessions`
+
+## Goal
+
+The **Sessions tab becomes a Matrix room list**, modelled on Element X: every room is a persistent chat with the Hermes bot. The user starts a new conversation either by creating a new room or by sending `/new` inside an existing one. A **Matrix | Gateway toggle** keeps the existing gateway session list, because Mission Control and cron still rely on gateway sessions.
+
+Encrypted and unencrypted rooms must both work, so the client uses the matrix-rust-sdk Kotlin bindings (`org.matrix.rustcomponents:sdk-android`, Apache-2.0) rather than a hand-rolled REST client.
+
+## Server constraints (generic)
+
+- Self-hosted Synapse with native sliding sync advertised (`org.matrix.simplified_msc3575`). Password login only.
+- LAN-only. Plain HTTP and HTTPS are both served; HTTPS sits behind a reverse proxy with a **private self-signed CA**. The CA certificate must never be bundled in the APK or committed; the user imports it on the device.
+- The bot is an ordinary Matrix user. Direct rooms (two members or fewer) are answered without an @mention. The bot supports E2EE (optional mode), so both encrypted and plain DMs are valid.
+
+## Phases
+
+| # | Phase | Scope |
+|---|-------|-------|
+| 0 | Spike | SDK dependency, API notes, TLS/cleartext findings, debug-only test screen (this doc) |
+| 1 | Account setup | Homeserver, password login, bot MXID, CA import (always with `disableBuiltInRootCertificates()`), encrypted session storage, store passphrase in Android Keystore |
+| 2 | Room list | Sessions tab room list + Matrix / Gateway toggle |
+| 3 | Room timeline | Paginate, live diffs, edits, send text/images, read receipts |
+| 4 | Command wrapper | Palette of Hermes messaging commands (`/new /stop /model /usage /retry /undo /title /status /help /personality /approve /deny` ...); native New session -> `/new`, model picker -> `/model`, stop -> `/stop`; approval prompts get approve / always / deny buttons that send the matching reactions |
+| 5 | New-room sheet | Encrypted toggle (default from a setting); create DM + invite bot |
+| 6 | E2EE UX | Recovery key, SAS emoji verification, unable-to-decrypt states |
+| 7 | Background | Background sync + notifications (reuse `GatewayConnectionService`; UnifiedPush later) |
+
+## Phase 0 results
+
+### SDK version and build
+
+- Chosen: **26.09.28** (Maven Central lists 26.10.15 as newest; 26.09.28 is about three weeks old). Compiles and packages with the current toolchain (Kotlin 2.3.10, AGP 9.1, compileSdk 37) with no JNA / coroutines / stdlib conflicts. Its POM brings kotlin-stdlib 1.9.25, coroutines 1.7.3 and JNA 5.18.1 (aar); Gradle's resolution picks the app's newer versions.
+- **Extra required dependency:** the SDK's native TLS uses `rustls-platform-verifier`, whose JVM half (`org.rustls:rustls-platform-verifier:0.1.1`) is *not* in the SDK AAR. It is served from the crate's own Maven archive, added to `settings.gradle.kts` restricted to group `org.rustls`. The app must also define the JNI shim `org.matrix.rustsdk.Android.init(Context)` (debug source set) and call it before `initPlatform`.
+- The SDK and verifier are `debugImplementation` only; release builds are unchanged.
+
+### APK size (`:app:assembleDebug`)
+
+| Build | Size |
+|-------|------|
+| Before SDK | 28.9 MB |
+| SDK, all 4 ABIs (arm64-v8a, armeabi-v7a, x86, x86_64) | 282 MB |
+| SDK, debug ABI filter arm64-v8a + x86_64 | 164.7 MB |
+
+`libmatrix_sdk_ffi.so` per ABI (uncompressed / gzip): arm64-v8a 64 MB / 23.4 MB, x86_64 70 MB / 25.6 MB, armeabi-v7a 42 MB, x86 74 MB. A single-ABI debug APK is therefore about 93 MB (arm64) or 99 MB (x86_64); a compressed release split is roughly 28.9 MB + 23 MB (arm64). Phase 1 must ship per-ABI splits or an app bundle (and decide whether to drop 32-bit ABIs) before the SDK enters release builds. The debug build type currently carries `ndk.abiFilters` for the two 64-bit ABIs.
+
+### Real API (from the generated UniFFI bindings, 26.09.28)
+
+All types are in `org.matrix.rustcomponents.sdk` unless noted. Methods marked `suspend` are Kotlin suspend functions (UniFFI async); the rest are blocking-fast calls. Listeners are callback interfaces invoked on Rust threads, so UI state must be marshalled. Every object implements `Disposable`/`AutoCloseable` (`destroy()` / `close()`); a `TaskHandle` returned from a subscription must be held (and `cancel()`ed) or the subscription dies with the GC.
+
+**Platform init (top-level):** `initPlatform(config: TracingConfiguration, useLightweightTokioRuntime: Boolean)`; `TracingConfiguration(logLevel: LogLevel, traceLogPacks, extraTargets, writeToStdoutOrSystem, writeToFiles: TracingFileConfiguration?, sentryConfig: SentryConfig?)`. Keep `LogLevel.INFO`; TRACE logs HTTP bodies.
+
+**ClientBuilder** (`ClientBuilder()` no-arg; each setter returns a new `ClientBuilder`; `suspend fun build(): Client`):
+- `homeserverUrl(url: String)` (never does well-known lookup), `serverName(String)`, `serverNameOrHomeserverUrl(String)`, `serverNameFromUserId(String)`; mutually exclusive, last one wins. `disableWellKnownLookup(Boolean)`.
+- `sqliteStore(config: SqliteStoreBuilder)` with `SqliteStoreBuilder(dataPath: String, cachePath: String).passphrase(String?)` (also `.key(ByteArray?)`, `.highEntropyPassphrase(ByteArray?, Base64Variant)`); legacy `sessionPaths(dataPath, cachePath)`; `inMemoryStore()`. Paths must be unique per session.
+- `addRootCertificates(certificates: List<ByteArray>)` (each entry a DER or PEM certificate; the native code tries DER, then PEM; a multi-cert PEM bundle must be split first, see `CertificateBytes`); `disableBuiltInRootCertificates()`; `disableSslVerification()` (do not use).
+- `userAgent(String)`, `proxy(String)`, `requestConfig(RequestConfig)`, `setSessionDelegate(ClientSessionDelegate)`, `slidingSyncVersionBuilder(...)`, `autoEnableCrossSigning(Boolean)`, `autoEnableBackups(Boolean)`, `threadsEnabled(Boolean, Boolean)`.
+- **The builder must set the sliding-sync version.** Use `slidingSyncVersionBuilder(SlidingSyncVersionBuilder.DISCOVER_NATIVE)` (variants `NONE`, `NATIVE`, `DISCOVER_NATIVE`; Synapse serves native MSC4186). Without it, starting the room list fails with "Sliding sync version is missing". It is a builder setting, so a restored session needs it too.
+
+**Login / session:** `suspend Client.login(username, password, initialDeviceName: String?, deviceId: String?)`; `loginWithEmail(...)`. Export with `Client.session(): Session`; `Session(accessToken, refreshToken?, userId, deviceId, homeserverUrl, oauthData?, slidingSyncVersion)`. Restore by building a client with the same store paths/passphrase/homeserver and `suspend Client.restoreSession(session)` (or `restoreSessionWith(session, RoomLoadSettings)`). `setSessionDelegate` is the hook to persist refreshed tokens. `suspend logout()`.
+
+**Sync:** `client.syncService(): SyncServiceBuilder` -> `suspend finish(): SyncService`; `SyncService.start()` / `stop()` (suspend), `state(SyncServiceStateObserver): TaskHandle` (IDLE, RUNNING, TERMINATED, ERROR, OFFLINE), `roomListService(): RoomListService`.
+
+**Room list:** `RoomListService.allRooms(): RoomList` (suspend) -> `entriesWithDynamicAdapters(pageSize: UInt, listener: RoomListEntriesListener): RoomListEntriesWithDynamicAdaptersResult`. The result gives `controller(): RoomListDynamicEntriesController` (`addOnePage()`, `resetToOnePage()`, `setFilter(RoomListEntriesDynamicFilterKind)`) and `entriesStream(): TaskHandle` (must be kept). `RoomListEntriesListener.onUpdate(List<RoomListEntriesUpdate>)`: sealed diffs Append, Clear, PushFront, PushBack, PopFront, PopBack, Insert, Set, Remove, Truncate, Reset, each carrying `Room` objects. Filters include NonSpace, NonLeft, Joined, Invite, Favourite, Category, All/Any combinators. Per room: `suspend room.roomInfo(): RoomInfo` with `displayName`, `rawName`, `encryptionState` (`uniffi.matrix_sdk_base.EncryptionState`), `isDirect`, `isDm`, `numUnreadMessages`, `numUnreadNotifications`, `numUnreadMentions`, `notificationCount`, `highlightCount`, `isMarkedUnread`, `heroes`, `membership`; live updates via `subscribeToRoomInfoUpdates(RoomInfoListener)`. `suspend room.latestEvent(): LatestEventValue` (None, Remote, RemoteInvite, Local; with timestamp, sender, isOwn, `content: TimelineItemContent`).
+
+**Create room:** `suspend Client.createRoom(CreateRoomParameters): String` (room id). `CreateRoomParameters(name: String?, topic = null, isEncrypted: Boolean, isDirect = false, visibility: RoomVisibility, preset: RoomPreset, invite: List<String>? = null, avatar, powerLevelContentOverride, joinRuleOverride, historyVisibilityOverride, canonicalAlias, isSpace = false)`. `RoomVisibility.Private`; `RoomPreset` = PRIVATE_CHAT, PUBLIC_CHAT, TRUSTED_PRIVATE_CHAT. `Client.getRoom(id): Room?`, `getDmRoom(userId)`, `getDmRooms(userId)`.
+
+**Timeline:** `suspend room.timeline(): Timeline` (or `timelineWithConfiguration(TimelineConfiguration)`). `suspend addListener(TimelineListener): TaskHandle`; `TimelineListener.onUpdate(List<TimelineDiff>)` with the same diff vocabulary over `TimelineItem` (`asEvent(): EventTimelineItem?`, `asVirtual()`). `EventTimelineItem`: `eventOrTransactionId`, `sender`, `senderProfile`, `isOwn`, `isEditable`, `content`, `reactions`, `timestamp`, `localSendState`, `readReceipts`, `canBeRepliedTo`. Message text: `content as TimelineItemContent.MsgLike` -> `.content.kind as MsgLikeKind.Message` -> `.content.body`; other kinds include `UnableToDecrypt`, `Redacted`, `Poll`, `Sticker`.
+- `paginateBackwards(numEvents: UShort): Boolean` (true when the start of the room is reached), `paginateForwards`, `subscribeToBackPaginationStatus`.
+- Send: top-level `messageEventContentFromMarkdown(md)` / `messageEventContentFromHtml(body, html)` -> `suspend timeline.send(msg): SendHandle`; `sendReply(msg, eventId)`.
+- Media: `sendImage(params: UploadParameters, thumbnailSource: UploadSource?, imageInfo: ImageInfo): SendAttachmentJoinHandle` (non-suspend; `UploadParameters.source = UploadSource.File(path)`); also `sendFile/sendVideo/sendAudio/sendVoiceMessage/sendGallery`.
+- Edit: `suspend edit(EventOrTransactionId, EditedContent)`; redact: `redactEvent(...)`.
+- Reactions: `suspend toggleReaction(itemId: EventOrTransactionId, key: String): Boolean`.
+- Receipts: `suspend sendReadReceipt(ReceiptType.READ | READ_PRIVATE | FULLY_READ, eventId)`, `markAsRead(ReceiptType)`.
+- Send-queue state per item: `EventSendState` (NotSentYet, SendingFailed, Sent, ...).
+
+**Encryption:** `client.encryption(): Encryption`: `recoveryState()` (UNKNOWN, ENABLED, DISABLED, INCOMPLETE), `recoveryStateListener`, `suspend enableRecovery(waitForBackupsToUpload, passphrase?, EnableRecoveryProgressListener): String` (returns the recovery key), `suspend recover(recoveryKey)`, `resetRecoveryKey()`, `backupState()`, `verificationState()` (UNKNOWN, VERIFIED, UNVERIFIED), `waitForE2eeInitializationTasks()`. SAS verification: `suspend client.getSessionVerificationController()` -> `requestDeviceVerification()`, `startSasVerification()`, `approveVerification()`, `declineVerification()`, `cancelVerification()`, with `SessionVerificationControllerDelegate` callbacks (`didReceiveVerificationRequest`, `didStartSasVerification`, `didReceiveVerificationData` carrying the emoji/decimals, `didFinish`, `didFail`, `didCancel`).
+
+**Threading model:** async work is `suspend` (UniFFI bridges Rust futures; safe from any dispatcher, including Main). Streams are callback interfaces fired on Rust worker threads, returning a `TaskHandle`. Room-list entries are live `Room` objects and `roomInfo()` is suspend, so the callback must hand work to a coroutine. Destroy `Timeline`, `RoomList` results, `SyncService` and `Client` when done.
+
+### TLS and cleartext findings
+
+Source: `client_builder.rs` in the SDK repo and strings in the shipped `libmatrix_sdk_ffi.so`.
+
+- The native HTTP stack is reqwest + rustls (aws-lc-rs), not the Java stack. **Android's `network_security_config` cleartext policy is not consulted by it**, so plain `http://` to the homeserver works regardless of the app's `usesCleartextTraffic`. (The app currently sets `usesCleartextTraffic="true"` and has no network security config; this was left untouched.)
+- Certificate verification normally goes through **rustls-platform-verifier**, which on Android calls back over JNI into the Android trust manager (class `org.rustls.platformverifier.CertificateVerifier`).
+- **Found on device: `addRootCertificates` alone fails on Android** with a reqwest "builder error" before any request is made. Cause (reqwest 0.13.5 `async_impl/client.rs`): when extra root certs are supplied without `tls_certs_only`, the platform-verifier branch is compiled as `return Err(builder("rustls-platform-verifier could not load extra certs"))` on Android (extra roots are only supported on desktop unix/Windows). The PEM/DER handling in the SDK was fine.
+- **Fix:** when a private CA is imported, call `addRootCertificates(certs)` **and** `disableBuiltInRootCertificates()`. That maps to reqwest's `tls_certs_only`, which skips the platform verifier and uses a plain webpki verifier trusting only the supplied CA(s). Consequences: the private CA need not be installed system-wide; trust is pinned to the imported CA (no public CAs); the server certificate must carry a SAN matching the host or IP used. Without a CA the platform verifier (system trust store) is used, which needs `Android.init(context)`.
+- Cleartext: the policy is still bypassed (native sockets), as above.
+- Without `Android.init(context)` the verifier is uninitialised ("Expect rustls-platform-verifier to be initialized"), so HTTPS would fail. The debug spike calls it before `initPlatform`.
+- Live verification: HTTPS-with-CA login re-test pending after the fix above; HTTP login pending.
+
+### Spike code
+
+- `app/src/main/.../data/matrix/CertificateBytes.kt`: pure PEM-bundle / DER splitting (unit-tested). This is main-source (so JVM tests can reach it) but has no SDK dependency and is unused by release code. Everything below is in the debug source set only.
+- `app/src/debug/.../data/matrix/MatrixClientFactory.kt`: platform init (SDK tracing at DEBUG to logcat tag `org.matrix.rust.sdk`), store dir under `filesDir` (wiped per login), random per-process store passphrase (Phase 1 replaces with Keystore-wrapped), optional CA.
+- `app/src/debug/.../data/matrix/MatrixSpike.kt` and `MatrixSpikeActivity.kt`: a separate "Matrix spike" launcher icon (debug builds only) with homeserver / username / password / bot MXID fields, a CA picker (Storage Access Framework), **Login + list rooms** (name, encrypted, unread) and **Create DM with bot** (Encrypted switch; creates the direct room, invites the bot, sends a ping and shows live timeline items). The password is cleared from the field on tap and never stored or logged. Errors show the full cause chain (redacted) on screen, in `DebugLog` and in logcat tag `MatrixSpike`.
+- `DebugLog.redact` additionally masks bearer tokens and `access_token` / `refresh_token` / `password` values.
+
+### On-device checks (user)
+
+1. Open the "Matrix spike" app icon. Pick the CA (stored in Downloads), enter the HTTPS URL, credentials, bot MXID; tap Login + list rooms.
+2. Repeat with the plain HTTP URL and no CA.
+3. With Encrypted on: Create DM with bot; expect the ping plus the bot's reply (no "[unable to decrypt]").
+4. With Encrypted off: repeat.
+
+## Required in Phase 1 (from spike review)
+
+- Own the coroutine scope: cancel it when the client is torn down (the spike's scope is never cancelled).
+- Update list state atomically: build the new room/timeline list under one lock and publish a single immutable snapshot, instead of clear-then-addAll on snapshot state.
+- Shut down in order: cancel `TaskHandle`s, `stop()` the sync service, then destroy timeline, room list, sync service and client.
+- Resolve `org.rustls` via `exclusiveContent` for that repository and pin artifact checksums (Gradle dependency verification) because it is served from a GitHub-hosted Maven archive.
+- Replace the in-memory store passphrase with an Android-Keystore-wrapped one; stop wiping the store on each login.
+
+## Out of scope for Phase 0
+
+Real Sessions-tab UI, persistent storage, notifications, recovery/verification flows.

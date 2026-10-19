@@ -13,6 +13,10 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // JVM support component of rustls-platform-verifier (needed by matrix-rust-sdk's TLS).
+        maven("https://github.com/rustls/rustls-platform-verifier/raw/maven-archive/android-release-support/maven/") {
+            content { includeGroup("org.rustls") }
+        }
     }
 }
 rootProject.name = "HermesAndroid"

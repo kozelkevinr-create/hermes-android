@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Debug-only Matrix SDK spike: gets its own launcher entry, absent from release builds. -->
+    <application>
+        <activity
+            android:name="com.hermes.client.data.matrix.MatrixSpikeActivity"
+            android:exported="true"
+            android:label="Matrix spike"
+            android:theme="@style/Theme.Hermes">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
