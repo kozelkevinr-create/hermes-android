@@ -2,6 +2,7 @@ package com.hermes.client.data.matrix
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -37,11 +38,16 @@ class TimelineRepaginator(
         }
     }
 
-    /** Cancel any pending page; the owning handle is closing. */
+    /** Cancel any pending page immediately (non-blocking); the owning handle is closing. */
     fun close() {
         pending?.cancel()
-        pending = null
         loaded = false
+    }
+
+    /** Joins any pending page so the handle can safely destroy FFI objects afterwards. */
+    suspend fun awaitClosed() {
+        pending?.cancelAndJoin()
+        pending = null
     }
 
     companion object {

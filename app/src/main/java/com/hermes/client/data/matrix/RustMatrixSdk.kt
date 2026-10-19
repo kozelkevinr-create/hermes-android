@@ -5,8 +5,9 @@ import com.hermes.client.data.diagnostics.DebugLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -231,6 +232,7 @@ private class RustTimelineHandle(
 
     private var listenerHandle: TaskHandle? = null
     private var paginationHandle: TaskHandle? = null
+    private var collectorJob: Job? = null
     @Volatile private var closed = false
 
     private val repaginator = TimelineRepaginator(scope) { count -> paginateBackwards(count) }
@@ -254,7 +256,7 @@ private class RustTimelineHandle(
     }
 
     init {
-        scope.launch {
+        collectorJob = scope.launch {
             rawUpdates.batches.collect { updates ->
                 try {
                     var reset = false
@@ -299,20 +301,33 @@ private class RustTimelineHandle(
         if (closed) return
         closed = true
         repaginator.close()
-        // Cancel subscriptions so no more diffs are handed to us, then stop the collector before
-        // draining, so the drain never races the live collector.
-        runCatching { listenerHandle?.cancel() }
-        runCatching { paginationHandle?.cancel() }
-        scope.cancel()
-        // Discards anything still buffered (or sent after close) on the calling thread, then
-        // closes the channel; each item is destroyed exactly once.
-        rawUpdates.close()
-        runCatching { listenerHandle?.destroy() }
-        runCatching { paginationHandle?.destroy() }
-        runCatching { timeline.destroy() }
-        runCatching { room.destroy() }
+        // Capture the handles now so the teardown coroutine reads stable references and this method
+        // never blocks the caller. Teardown must wait for the collector and any in-flight pagination
+        // to finish before destroying FFI objects: `cancel()` alone returns immediately, so a
+        // collector still running on Dispatchers.Default could otherwise touch a destroyed
+        // timeline/room (use-after-free). The ordered teardown is launched on this handle's
+        // background scope (Dispatchers.Default, never cancelled) rather than making close() suspend,
+        // so it never blocks the main thread and still guarantees the order:
+        //   set closed -> cancel SDK TaskHandles -> cancelAndJoin the collector -> join pagination ->
+        //   drain the queue -> destroy timeline then room.
+        val listener = listenerHandle
+        val pagination = paginationHandle
         listenerHandle = null
         paginationHandle = null
+        // Stop new diffs immediately; a late diff is discarded by ClosableDiffQueue.send().
+        runCatching { listener?.cancel() }
+        runCatching { pagination?.cancel() }
+        scope.launch {
+            collectorJob?.cancelAndJoin()
+            repaginator.awaitClosed()
+            // Discards anything still buffered (or sent after close), then closes the channel; each
+            // item is destroyed exactly once.
+            rawUpdates.close()
+            runCatching { listener?.destroy() }
+            runCatching { pagination?.destroy() }
+            runCatching { timeline.destroy() }
+            runCatching { room.destroy() }
+        }
     }
 
 }

@@ -14,7 +14,9 @@ import kotlinx.coroutines.flow.receiveAsFlow
 internal class ClosableDiffQueue<T>(private val onDiscard: (T) -> Unit) {
     private val channel = Channel<List<T>>(Channel.UNLIMITED)
 
-    @Volatile
+    /** Guards [send] and [close] together so a send can never slip past the closed check. */
+    private val lock = Any()
+
     private var closed = false
 
     /** Stream consumed by the collector; a batch is owned only after it is received from here. */
@@ -24,8 +26,11 @@ internal class ClosableDiffQueue<T>(private val onDiscard: (T) -> Unit) {
      * Queues [batch]. Returns true when ownership transfers to the collector. Returns false — and
      * discards every item — once [closed] is set or when the send fails, so a late callback on a
      * closed handle never leaks its items.
+     *
+     * Both the closed check and the [Channel.trySend] happen under [lock], so [close] cannot run
+     * between them (which would strand a batch that passed the check but was sent after the drain).
      */
-    fun send(batch: List<T>): Boolean {
+    fun send(batch: List<T>): Boolean = synchronized(lock) {
         if (closed) {
             batch.forEach(onDiscard)
             return false
@@ -35,17 +40,22 @@ internal class ClosableDiffQueue<T>(private val onDiscard: (T) -> Unit) {
             batch.forEach(onDiscard)
             return false
         }
-        return true
+        true
     }
 
-    /** Marks the queue closed, discards whatever is still buffered, then closes the channel. */
+    /** Marks the queue closed (atomically, so double close is a no-op), then drains the buffer. */
     fun close() {
-        if (closed) return
-        closed = true
+        synchronized(lock) {
+            if (closed) return
+            closed = true
+            channel.close()
+        }
+        // Buffered items stay receivable after close, so drain them here (outside the lock, since
+        // onDiscard may destroy FFI handles and must not hold it). No new item can arrive after
+        // close(): send either failed above or was already received into the channel's buffer.
         while (true) {
             val batch = channel.tryReceive().getOrNull() ?: break
             batch.forEach(onDiscard)
         }
-        channel.close()
     }
 }
