@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -29,7 +30,9 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun CrashReportScreen(report: String, onShare: () -> Unit, onDismiss: () -> Unit) {
     Surface(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().padding(16.dp)) {
+        // safeDrawingPadding keeps the title clear of the status bar and the buttons above the
+        // navigation bar under edge-to-edge; the report area itself stays scrollable.
+        Column(Modifier.fillMaxSize().safeDrawingPadding().padding(16.dp)) {
             Text("Hermes Local crashed", style = MaterialTheme.typography.headlineSmall)
             Spacer(Modifier.height(8.dp))
             Text(
