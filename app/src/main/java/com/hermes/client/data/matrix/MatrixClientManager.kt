@@ -89,6 +89,9 @@ class MatrixClientManager(
     /** Called from app start; does nothing without a saved session. Also the "Retry" action. */
     fun restoreOnStart(): Job = launchOp { doRestore() }
 
+    /** Opens a live read-only timeline for [roomId], or null when the room is unknown or no session is live. */
+    suspend fun openTimeline(roomId: String): MatrixTimelineHandle? = withContext(dispatcher) { handle?.openTimeline(roomId) }
+
     /** Server logout (best effort), then stop, destroy and wipe everything local. Preempts a running login/restore. */
     fun logout(): Job {
         cancelAllOps()

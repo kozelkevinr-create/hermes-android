@@ -1,6 +1,7 @@
 package com.hermes.client.data.matrix
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
 import java.io.File
 
 /** Parameters for building a client. Paths must be unique per session. */
@@ -35,9 +36,31 @@ interface MatrixClientHandle {
     suspend fun startSync()
     suspend fun stopSync()
 
+    /**
+     * Opens a read-only live timeline for a room, or null when the room is unknown. The handle owns
+     * its own collector and must be [MatrixTimelineHandle.close]d when the screen is done.
+     */
+    suspend fun openTimeline(roomId: String): MatrixTimelineHandle? = null
+
     /** Server-side logout (invalidates the access token). */
     suspend fun logout()
 
     /** Stops sync, then destroys every SDK object this handle holds. Idempotent. */
     suspend fun close()
+}
+
+/**
+ * A live room timeline. [items] holds immutable snapshots, already applied from the SDK's diffs on
+ * a single collector; [paginationState] reflects back-pagination (Loading / AtStart / Idle).
+ */
+interface MatrixTimelineHandle {
+    val items: StateFlow<List<TimelineEntry>>
+
+    /** Pages older events in; returns true when the start of the room has been reached. */
+    suspend fun paginateBackwards(count: Int): Boolean
+
+    val paginationState: StateFlow<PaginationState>
+
+    /** Cancels subscriptions and destroys every SDK object this handle holds. Idempotent. */
+    fun close()
 }

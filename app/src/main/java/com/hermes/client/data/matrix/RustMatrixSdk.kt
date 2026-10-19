@@ -3,15 +3,32 @@ package com.hermes.client.data.matrix
 import android.content.Context
 import com.hermes.client.data.diagnostics.DebugLog
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.launch
 import org.matrix.rustcomponents.sdk.Client
 import org.matrix.rustcomponents.sdk.ClientBuilder
 import org.matrix.rustcomponents.sdk.ClientSessionDelegate
+import org.matrix.rustcomponents.sdk.Disposable
+import org.matrix.rustcomponents.sdk.EventSendState
+import org.matrix.rustcomponents.sdk.EventTimelineItem
 import org.matrix.rustcomponents.sdk.LatestEventValue
+import org.matrix.rustcomponents.sdk.MembershipChange
+import org.matrix.rustcomponents.sdk.MessageContent
+import org.matrix.rustcomponents.sdk.MessageType
+import org.matrix.rustcomponents.sdk.MsgLikeContent
 import org.matrix.rustcomponents.sdk.MsgLikeKind
+import org.matrix.rustcomponents.sdk.OtherState
+import org.matrix.rustcomponents.sdk.PaginationStatusListener
 import org.matrix.rustcomponents.sdk.ProfileDetails
 import org.matrix.rustcomponents.sdk.Room
 import org.matrix.rustcomponents.sdk.RoomList
@@ -27,7 +44,13 @@ import org.matrix.rustcomponents.sdk.SlidingSyncVersionBuilder
 import org.matrix.rustcomponents.sdk.SqliteStoreBuilder
 import org.matrix.rustcomponents.sdk.SyncService
 import org.matrix.rustcomponents.sdk.TaskHandle
+import org.matrix.rustcomponents.sdk.Timeline
+import org.matrix.rustcomponents.sdk.TimelineDiff
+import org.matrix.rustcomponents.sdk.TimelineItem
 import org.matrix.rustcomponents.sdk.TimelineItemContent
+import org.matrix.rustcomponents.sdk.TimelineListener
+import org.matrix.rustcomponents.sdk.VirtualTimelineItem
+import uniffi.matrix_sdk.PaginationStatus
 import uniffi.matrix_sdk_base.EncryptionState
 
 /** [MatrixSdk] over the matrix-rust-sdk UniFFI bindings. */
@@ -131,6 +154,28 @@ private class RustClientHandle(private val client: Client) : MatrixClientHandle 
         syncService?.stop()
     }
 
+    override suspend fun openTimeline(roomId: String): MatrixTimelineHandle? {
+        requireOpen()
+        val room = client.getRoom(roomId) ?: return null
+        val timeline = try {
+            room.timeline()
+        } catch (e: CancellationException) {
+            runCatching { room.destroy() }
+            throw e
+        } catch (e: Exception) {
+            runCatching { room.destroy() }
+            throw e
+        }
+        val handle = RustTimelineHandle(room, timeline)
+        try {
+            handle.start()
+        } catch (e: Throwable) {
+            runCatching { handle.close() }
+            throw e
+        }
+        return handle
+    }
+
     override suspend fun logout() {
         requireOpen()
         client.logout()
@@ -163,6 +208,315 @@ private class RustClientHandle(private val client: Client) : MatrixClientHandle 
         roomListService = null
         syncService = null
     }
+}
+
+/** Number of events the timeline loads on the first page and on every repagination. */
+private const val TIMELINE_PAGE_SIZE = 50
+
+private class RustTimelineHandle(
+    private val room: Room,
+    private val timeline: Timeline,
+) : MatrixTimelineHandle {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val rawUpdates = Channel<List<TimelineDiff>>(Channel.UNLIMITED)
+
+    private val _items = MutableStateFlow<List<TimelineEntry>>(emptyList())
+    override val items: StateFlow<List<TimelineEntry>> = _items.asStateFlow()
+
+    private val _paginationState = MutableStateFlow(PaginationState.Idle)
+    override val paginationState: StateFlow<PaginationState> = _paginationState.asStateFlow()
+
+    private var listenerHandle: TaskHandle? = null
+    private var paginationHandle: TaskHandle? = null
+    @Volatile private var closed = false
+
+    private val repaginator = TimelineRepaginator(scope) { count -> paginateBackwards(count) }
+
+    private val listener = object : TimelineListener {
+        override fun onUpdate(diff: List<TimelineDiff>) {
+            // Never throw on the SDK thread; hand the batch to the collector to map it.
+            rawUpdates.trySend(diff)
+        }
+    }
+
+    private val statusListener = object : PaginationStatusListener {
+        override fun onUpdate(status: PaginationStatus) {
+            _paginationState.value = when (status) {
+                is PaginationStatus.Paginating -> PaginationState.Loading
+                is PaginationStatus.Idle ->
+                    if (status.hitTimelineStart) PaginationState.AtStart else PaginationState.Idle
+            }
+        }
+    }
+
+    init {
+        scope.launch {
+            for (updates in rawUpdates) {
+                try {
+                    var reset = false
+                    val diffs = ArrayList<ListDiff<TimelineEntry>>(updates.size)
+                    for (d in updates) {
+                        if (d is TimelineDiff.Clear || (d is TimelineDiff.Reset && d.values.isEmpty())) {
+                            reset = true
+                        }
+                        diffs += d.toEntryDiff()
+                    }
+                    _items.value = applyDiffs(_items.value, diffs)
+                    repaginator.onBatch(reset)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // A single bad batch must never kill the collector.
+                    DebugLog.log("matrix-timeline", "apply batch failed: ${e.javaClass.simpleName}")
+                }
+            }
+        }
+    }
+
+    /** Attaches the listener and pagination subscription, then loads the first page. */
+    suspend fun start() {
+        if (closed) return
+        listenerHandle = timeline.addListener(listener)
+        paginationHandle = timeline.subscribeToBackPaginationStatus(statusListener)
+        timeline.paginateBackwards(TIMELINE_PAGE_SIZE.toUShort())
+        // Resets only count once the first page has been requested (a Clear during the initial
+        // load must not schedule another page).
+        repaginator.onFirstPageRequested()
+    }
+
+    override suspend fun paginateBackwards(count: Int): Boolean {
+        if (closed) return false
+        _paginationState.value = PaginationState.Loading
+        return timeline.paginateBackwards(count.toUShort())
+    }
+
+    override fun close() {
+        if (closed) return
+        closed = true
+        repaginator.close()
+        // Cancel subscriptions before destroying, and cancel the collector scope so no mapping
+        // races the teardown.
+        runCatching { listenerHandle?.cancel() }
+        runCatching { paginationHandle?.cancel() }
+        rawUpdates.close()
+        scope.cancel()
+        runCatching { listenerHandle?.destroy() }
+        runCatching { paginationHandle?.destroy() }
+        runCatching { timeline.destroy() }
+        runCatching { room.destroy() }
+        listenerHandle = null
+        paginationHandle = null
+    }
+}
+
+/** Maps an SDK diff onto the pure [ListDiff], destroying every carried item exactly once. */
+private suspend fun TimelineDiff.toEntryDiff(): ListDiff<TimelineEntry> {
+    suspend fun one(item: TimelineItem): TimelineEntry = try {
+        item.toEntry()
+    } finally {
+        item.destroy()
+    }
+    suspend fun many(items: List<TimelineItem>): List<TimelineEntry> {
+        val out = ArrayList<TimelineEntry>(items.size)
+        var handled = 0
+        try {
+            for (item in items) {
+                try {
+                    out += item.toEntry()
+                } finally {
+                    item.destroy()
+                    handled++
+                }
+            }
+        } finally {
+            // Items after the last one handled (cancellation or an error) were never destroyed.
+            items.drop(handled).forEach { runCatching { it.destroy() } }
+        }
+        return out
+    }
+    return when (this) {
+        is TimelineDiff.Append -> ListDiff.Append(many(values))
+        is TimelineDiff.Clear -> ListDiff.Clear
+        is TimelineDiff.PushFront -> ListDiff.PushFront(one(value))
+        is TimelineDiff.PushBack -> ListDiff.PushBack(one(value))
+        is TimelineDiff.PopFront -> ListDiff.PopFront
+        is TimelineDiff.PopBack -> ListDiff.PopBack
+        is TimelineDiff.Insert -> ListDiff.Insert(index.toInt(), one(value))
+        is TimelineDiff.Set -> ListDiff.Set(index.toInt(), one(value))
+        is TimelineDiff.Remove -> ListDiff.Remove(index.toInt())
+        is TimelineDiff.Truncate -> ListDiff.Truncate(length.toInt())
+        is TimelineDiff.Reset -> ListDiff.Reset(many(values))
+    }
+}
+
+private fun TimelineItem.toEntry(): TimelineEntry {
+    val id = runCatching { uniqueId().id }.getOrDefault("")
+    return try {
+        val virtual = asVirtual()
+        if (virtual != null) {
+            when (virtual) {
+                is VirtualTimelineItem.DateDivider -> TimelineEntry.DayDivider(virtual.ts.toLong())
+                is VirtualTimelineItem.ReadMarker -> TimelineEntry.ReadMarker
+                else -> TimelineEntry.Unsupported(id)
+            }
+        } else {
+            val event = asEvent()
+            if (event == null) {
+                TimelineEntry.Unsupported(id)
+            } else {
+                try {
+                    event.toEventEntry(id)
+                } finally {
+                    event.destroy()
+                }
+            }
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        // Never let one bad item kill the collector; log the variant and render nothing.
+        DebugLog.log("matrix-timeline", "skip item: ${e.javaClass.simpleName}")
+        TimelineEntry.Unsupported(id)
+    }
+}
+
+private fun EventTimelineItem.toEventEntry(id: String): TimelineEntry {
+    val disposables = ArrayList<Disposable>()
+    try {
+        val sender = sender
+        val isOwn = isOwn
+        val ts = timestamp.toLong()
+        val senderName = (senderProfile as? ProfileDetails.Ready)?.displayName.orEmpty()
+        val sendState = localSendState.toSendState()
+        val content = this.content
+        disposables += content
+        return when (content) {
+            is TimelineItemContent.MsgLike -> {
+                val msgLike = content.content
+                disposables += msgLike
+                msgLike.toEntry(disposables, id, sender, senderName, isOwn, ts, sendState)
+            }
+            is TimelineItemContent.RoomMembership -> TimelineEntry.StateEvent(id, ts, content.membershipSummary())
+            is TimelineItemContent.ProfileChange -> TimelineEntry.StateEvent(id, ts, content.profileSummary())
+            is TimelineItemContent.State -> TimelineEntry.StateEvent(id, ts, content.content.stateSummary())
+            else -> TimelineEntry.Unsupported(id)
+        }
+    } finally {
+        disposables.asReversed().forEach { runCatching { it.destroy() } }
+    }
+}
+
+private fun MsgLikeContent.toEntry(
+    disposables: MutableList<Disposable>,
+    id: String,
+    sender: String,
+    senderName: String,
+    isOwn: Boolean,
+    ts: Long,
+    sendState: MessageSendState,
+): TimelineEntry {
+    val kind = this.kind
+    disposables += kind
+    return when (kind) {
+        is MsgLikeKind.Message -> {
+            val mc = kind.content
+            disposables += mc
+            mc.toMessageEntry(disposables, id, sender, senderName, isOwn, ts, sendState)
+        }
+        is MsgLikeKind.UnableToDecrypt -> TimelineEntry.Utd(id, sender, ts)
+        is MsgLikeKind.Redacted ->
+            TimelineEntry.Message(id, sender, senderName, isOwn, ts, "", isEdited = false, MessageKind.OTHER, sendState)
+        is MsgLikeKind.Poll ->
+            TimelineEntry.Message(id, sender, senderName, isOwn, ts, kind.question, isEdited = false, MessageKind.OTHER, sendState)
+        is MsgLikeKind.Sticker ->
+            TimelineEntry.Message(id, sender, senderName, isOwn, ts, kind.body, isEdited = false, MessageKind.IMAGE, sendState)
+        else ->
+            TimelineEntry.Message(id, sender, senderName, isOwn, ts, "", isEdited = false, MessageKind.OTHER, sendState)
+    }
+}
+
+private fun MessageContent.toMessageEntry(
+    disposables: MutableList<Disposable>,
+    id: String,
+    sender: String,
+    senderName: String,
+    isOwn: Boolean,
+    ts: Long,
+    sendState: MessageSendState,
+): TimelineEntry {
+    val body = this.body
+    val isEdited = this.isEdited
+    val msgType = this.msgType
+    disposables += msgType
+    val (kind, effectiveBody) = when (msgType) {
+        is MessageType.Text -> MessageKind.TEXT to body
+        is MessageType.Notice -> MessageKind.NOTICE to body
+        is MessageType.Emote -> MessageKind.EMOTE to body
+        is MessageType.Image -> MessageKind.IMAGE to attachmentBody(msgType.content, body, disposables)
+        is MessageType.File -> MessageKind.FILE to attachmentBody(msgType.content, body, disposables)
+        is MessageType.Audio -> MessageKind.FILE to attachmentBody(msgType.content, body, disposables)
+        is MessageType.Video -> MessageKind.FILE to attachmentBody(msgType.content, body, disposables)
+        is MessageType.Gallery -> {
+            val c = msgType.content
+            disposables += c
+            MessageKind.OTHER to c.body
+        }
+        else -> MessageKind.OTHER to body
+    }
+    return TimelineEntry.Message(id, sender, senderName, isOwn, ts, effectiveBody, isEdited, kind, sendState)
+}
+
+/** The filename of an attachment, falling back to the message body when the filename is absent. */
+private fun <T : Disposable> attachmentBody(content: T, body: String, disposables: MutableList<Disposable>): String {
+    disposables += content
+    val filename = when (content) {
+        is org.matrix.rustcomponents.sdk.ImageMessageContent -> content.filename
+        is org.matrix.rustcomponents.sdk.FileMessageContent -> content.filename
+        is org.matrix.rustcomponents.sdk.AudioMessageContent -> content.filename
+        is org.matrix.rustcomponents.sdk.VideoMessageContent -> content.filename
+        else -> null
+    }
+    return filename?.takeIf { it.isNotBlank() } ?: body
+}
+
+private fun EventSendState?.toSendState(): MessageSendState = when (this) {
+    is EventSendState.NotSentYet -> MessageSendState.NOT_SENT_YET
+    is EventSendState.SendingFailed -> MessageSendState.SENDING_FAILED
+    else -> MessageSendState.SENT
+}
+
+private fun TimelineItemContent.RoomMembership.membershipSummary(): String {
+    val who = senderLabel(userId, userDisplayName, isOwn = false)
+    return when (change) {
+        MembershipChange.JOINED, MembershipChange.INVITATION_ACCEPTED -> "$who joined the room"
+        MembershipChange.LEFT, MembershipChange.INVITATION_REJECTED, MembershipChange.INVITATION_REVOKED -> "$who left the room"
+        MembershipChange.INVITED -> "$who was invited"
+        MembershipChange.KICKED, MembershipChange.KICKED_AND_BANNED -> "$who was kicked"
+        MembershipChange.BANNED -> "$who was banned"
+        MembershipChange.UNBANNED -> "$who was unbanned"
+        else -> "$who updated their membership"
+    }
+}
+
+private fun TimelineItemContent.ProfileChange.profileSummary(): String {
+    val name = displayName
+    val prev = prevDisplayName
+    return when {
+        !name.isNullOrBlank() && !prev.isNullOrBlank() && name != prev -> "changed their name to $name"
+        !name.isNullOrBlank() && prev.isNullOrBlank() -> "set their name to $name"
+        name.isNullOrBlank() && !prev.isNullOrBlank() -> "removed their name"
+        avatarUrl != null -> "changed their avatar"
+        else -> "updated their profile"
+    }
+}
+
+private fun OtherState.stateSummary(): String = when (this) {
+    is OtherState.RoomName -> "changed the room name"
+    is OtherState.RoomTopic -> "changed the topic"
+    is OtherState.RoomAvatar -> "changed the room avatar"
+    is OtherState.RoomCreate -> "created the room"
+    is OtherState.RoomEncryption -> "turned on encryption"
+    else -> "changed a room setting"
 }
 
 private suspend fun Room.toSummary(): MatrixRoomSummary {
