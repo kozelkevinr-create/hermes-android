@@ -1,0 +1,5 @@
+# Copy to matrix.defaults.properties (gitignored) to prefill the Matrix setup form in debug builds.
+# Release and beta builds ignore this file. Do not add a password.
+homeserver=
+username=
+botMxid=

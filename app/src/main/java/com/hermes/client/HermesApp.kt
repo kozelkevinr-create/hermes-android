@@ -3,6 +3,7 @@ package com.hermes.client
 import android.app.Application
 import com.hermes.client.data.diagnostics.CrashReporter
 import com.hermes.client.data.diagnostics.DebugLog
+import com.hermes.client.data.matrix.MatrixClientManager
 import com.hermes.client.data.repository.SettingsStore
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
@@ -16,6 +17,7 @@ import javax.inject.Inject
 @HiltAndroidApp
 class HermesApp : Application() {
     @Inject lateinit var settingsStore: SettingsStore
+    @Inject lateinit var matrixClientManager: MatrixClientManager
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -29,5 +31,8 @@ class HermesApp : Application() {
             .distinctUntilChanged()
             .onEach { DebugLog.setEnabled(it) }
             .launchIn(appScope)
+        // Bring the saved Matrix session (if any) back up. The manager reads its encrypted store off
+        // the main thread, and a failure is surfaced as a state, never thrown here.
+        matrixClientManager.restoreOnStart()
     }
 }

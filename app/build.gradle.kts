@@ -8,6 +8,16 @@ val keystoreProps = Properties().apply {
     if (keystorePropsFile.exists()) keystorePropsFile.inputStream().use { load(it) }
 }
 
+// Debug-only prefills for the Matrix setup form, from the gitignored matrix.defaults.properties
+// (see matrix.defaults.properties.example). Empty when absent; never read for release/beta, and
+// there is deliberately no password key.
+val matrixDefaultsFile = rootProject.file("matrix.defaults.properties")
+val matrixDefaults = Properties().apply {
+    if (matrixDefaultsFile.exists()) matrixDefaultsFile.inputStream().use { load(it) }
+}
+fun buildConfigString(v: String?): String =
+    "\"" + (v ?: "").trim().replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -35,6 +45,10 @@ android {
         testInstrumentationRunner = "com.hermes.client.HiltTestRunner"
         // App name; the beta build type overrides this so both can be installed at once.
         manifestPlaceholders["appLabel"] = "Hermes Local"
+        // Matrix setup-form prefills: empty everywhere except debug (overridden below).
+        buildConfigField("String", "MATRIX_DEFAULT_HOMESERVER", "\"\"")
+        buildConfigField("String", "MATRIX_DEFAULT_USERNAME", "\"\"")
+        buildConfigField("String", "MATRIX_DEFAULT_BOT_MXID", "\"\"")
     }
     signingConfigs {
         if (keystorePropsFile.exists()) {
@@ -48,12 +62,17 @@ android {
     }
     buildTypes {
         debug {
-            // The debug-only Matrix spike pulls in matrix-rust-sdk, which ships a ~40-75 MB native
-            // lib per ABI; keep only the 64-bit ABIs (arm64 devices + x86_64 emulators).
+            // matrix-rust-sdk ships a ~40-75 MB native lib per ABI; keep only the 64-bit ABIs
+            // (arm64 devices + x86_64 emulators). Release ABI splits are Phase 1b.
             ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+            buildConfigField("String", "MATRIX_DEFAULT_HOMESERVER", buildConfigString(matrixDefaults.getProperty("homeserver")))
+            buildConfigField("String", "MATRIX_DEFAULT_USERNAME", buildConfigString(matrixDefaults.getProperty("username")))
+            buildConfigField("String", "MATRIX_DEFAULT_BOT_MXID", buildConfigString(matrixDefaults.getProperty("botMxid")))
         }
         release {
             isMinifyEnabled = false
+            // matrix-rust-sdk is ~40-75 MB per ABI; ship arm64 only until Phase 1b adds ABI splits.
+            ndk { abiFilters += listOf("arm64-v8a") }
             // Sign with the release config only when the keystore is present.
             signingConfig = signingConfigs.findByName("release")
         }
@@ -62,13 +81,17 @@ android {
         // pre-release. Inherits the release signing config.
         create("beta") {
             initWith(getByName("release"))
+            ndk { abiFilters += listOf("arm64-v8a") }
             applicationIdSuffix = ".beta"
             versionNameSuffix = "-beta"
             manifestPlaceholders["appLabel"] = "Hermes Local Beta"
             signingConfig = signingConfigs.findByName("release")
         }
     }
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
 
     // Let stubbed android.* calls (e.g. android.util.Log) return defaults instead of throwing
     // in local JVM unit tests, so pure logic that mirrors to logcat stays unit-testable.
@@ -121,9 +144,9 @@ dependencies {
     implementation(libs.zxing.embedded)
     implementation(libs.glance.appwidget)
 
-    // Matrix spike (src/debug only): the SDK and its Android TLS-verifier shim stay out of release.
-    debugImplementation(libs.matrix.rust.sdk)
-    debugImplementation(libs.rustls.platform.verifier)
+    // matrix-rust-sdk and the JVM half of its TLS verifier (needed for HTTPS without a private CA).
+    implementation(libs.matrix.rust.sdk)
+    implementation(libs.rustls.platform.verifier)
 
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)

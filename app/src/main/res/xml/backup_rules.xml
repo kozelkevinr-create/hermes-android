@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Pre-Android 12 full backup: keep the Matrix SDK database and encrypted account prefs off the cloud. -->
+<full-backup-content>
+    <exclude domain="file" path="matrix/" />
+    <exclude domain="sharedpref" path="hermes_matrix_account.xml" />
+</full-backup-content>

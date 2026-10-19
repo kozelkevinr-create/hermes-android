@@ -1,7 +1,7 @@
 # Matrix Sessions — Design
 
 **Date:** 2026-10-19
-**Status:** Phase 0 (spike) implemented; phases 1-7 planned
+**Status:** Phase 0 (spike) and Phase 1a (account, client manager) implemented; Phase 1b (release ABI splits) and phases 2-7 planned
 **Branch:** `feature/matrix-sessions`
 
 ## Goal
@@ -91,7 +91,7 @@ Source: `client_builder.rs` in the SDK repo and strings in the shipped `libmatri
 - **Fix:** when a private CA is imported, call `addRootCertificates(certs)` **and** `disableBuiltInRootCertificates()`. That maps to reqwest's `tls_certs_only`, which skips the platform verifier and uses a plain webpki verifier trusting only the supplied CA(s). Consequences: the private CA need not be installed system-wide; trust is pinned to the imported CA (no public CAs); the server certificate must carry a SAN matching the host or IP used. Without a CA the platform verifier (system trust store) is used, which needs `Android.init(context)`.
 - Cleartext: the policy is still bypassed (native sockets), as above.
 - Without `Android.init(context)` the verifier is uninitialised ("Expect rustls-platform-verifier to be initialized"), so HTTPS would fail. The debug spike calls it before `initPlatform`.
-- Live verification: HTTPS-with-CA login re-test pending after the fix above; HTTP login pending.
+- Live verification (device, against the real Synapse): HTTPS with the imported CA plus `disableBuiltInRootCertificates()` works, as do encrypted and unencrypted DM round trips with the bot. `slidingSyncVersionBuilder(DISCOVER_NATIVE)` is required.
 
 ### Spike code
 
@@ -107,6 +107,10 @@ Source: `client_builder.rs` in the SDK repo and strings in the shipped `libmatri
 3. With Encrypted on: Create DM with bot; expect the ping plus the bot's reply (no "[unable to decrypt]").
 4. With Encrypted off: repeat.
 
+## Phase 3 notes (from the Phase 0 device run)
+
+- The SDK can emit a timeline `Clear` diff (seen on device). On `Clear`, re-paginate backwards from the live end; never treat an empty list as final or as the start of the room.
+
 ## Required in Phase 1 (from spike review)
 
 - Own the coroutine scope: cancel it when the client is torn down (the spike's scope is never cancelled).
@@ -114,6 +118,16 @@ Source: `client_builder.rs` in the SDK repo and strings in the shipped `libmatri
 - Shut down in order: cancel `TaskHandle`s, `stop()` the sync service, then destroy timeline, room list, sync service and client.
 - Resolve `org.rustls` via `exclusiveContent` for that repository and pin artifact checksums (Gradle dependency verification) because it is served from a GitHub-hosted Maven archive.
 - Replace the in-memory store passphrase with an Android-Keystore-wrapped one; stop wiping the store on each login.
+
+## Phase 1a (implemented)
+
+- **Dependencies:** `sdk-android` and `rustls-platform-verifier` are now `implementation`; the `org.matrix.rustsdk.Android` JNI shim lives in main. The `org.rustls` repository is declared with `exclusiveContent` (only `org.rustls`, and `org.rustls` resolves nowhere else). The debug-only `abiFilters` stay; release ABI splits are Phase 1b, so release builds are not shippable with the SDK until then (the release workflow is untouched).
+- **Dependency verification: adopted.** `gradle/verification-metadata.xml` (sha256, no signature verification, metadata verification on) was generated for the full graph with `--write-verification-metadata sha256` over `testDebugUnitTest assembleDebug assembleRelease assembleBeta`, run with `--refresh-dependencies --no-daemon` (a warm Gradle cache hides buildscript-classpath artifacts, so a first attempt missed four and failed on a clean cache). It pins the GitHub-hosted `org.rustls` artifacts and everything else; a clean-cache `testDebugUnitTest assembleDebug compileReleaseKotlin assembleBeta` passes. Trade-off: every dependency bump now needs a regenerated file (`./gradlew --refresh-dependencies --write-verification-metadata sha256 <the tasks above>`). The androidTest configurations cannot be resolved on this branch regardless (`concurrent-futures-ktx` strict-version conflict, pre-existing), so they are not covered.
+- **Code (`data/matrix`):** `MatrixSdk` / `MatrixClientHandle` are the seam over the FFI (`RustMatrixSdk` is the only class touching it besides `MatrixPlatform`); `MatrixAccountStore` persists the session, bot MXID, optional CA (DER) and a random 32-byte store passphrase in EncryptedSharedPreferences (passphrase generated once, kept across logouts; the password is never stored); `MatrixClientManager` is the `@Singleton` owner with one `StateFlow<MatrixState>` (LoggedOut, Restoring, LoggingIn, Ready, Error) and `rooms: StateFlow<List<MatrixRoomSummary>>` built with `applyDiffs`. UI: Settings -> "Matrix account" (`ui/matrix`).
+- **Lifecycle (the "Required in Phase 1" list):** one owned scope per session, cancelled on logout/teardown; shutdown cancels the scope, then `stop()`s the sync service, then destroys entries handle, controller, room-list result, room list, room-list service, sync service and client; `Room`/`RoomInfo` handles are destroyed after being summarised; the room list is published as immutable snapshots from a single collector; the store passphrase is persisted, restore reuses the existing store, and the store directories are wiped only on a fresh login, a failed login and logout.
+- **Session delegate:** `ClientBuilder.setSessionDelegate(ClientSessionDelegate)` exists with two methods, `saveSessionInKeychain(Session)` (called on token refresh; we persist it via `MatrixAccountStore.updateSession`, a no-op once logged out) and `retrieveSessionFromKeychain(userId)` (served from the store, falling back to the last session the SDK saved).
+- **Debug defaults:** gitignored `matrix.defaults.properties` (`homeserver`, `username`, `botMxid`; see the `.example`) feeds debug-only `BuildConfig` fields that prefill the setup form; release and beta are always empty; no password key.
+- **Restore on start:** `HermesApp` calls `restoreOnStart()` when a saved session exists; failure falls back to LoggedOut and exposes the redacted reason via `restoreError`.
 
 ## Out of scope for Phase 0
 

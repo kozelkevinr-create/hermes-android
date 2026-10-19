@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+: exclude the Matrix SDK database (files/matrix/) and the encrypted account prefs
+     (shared_prefs/hermes_matrix_account.xml) from both cloud backup and device-to-device transfer.
+     Their keys live in the Android Keystore and would not survive a restore anyway. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="matrix/" />
+        <exclude domain="sharedpref" path="hermes_matrix_account.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="matrix/" />
+        <exclude domain="sharedpref" path="hermes_matrix_account.xml" />
+    </device-transfer>
+</data-extraction-rules>

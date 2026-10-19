@@ -90,6 +90,9 @@ object DebugLog {
     // punctuation, so prose like "bearer of bad news" is left alone.
     private val bearerRegex =
         Regex("(?i)\\b(bearer\\s+)(?=[A-Za-z0-9._~+/=-]*[0-9._~+/=-])[A-Za-z0-9._~+/=-]{8,}")
+    // Synapse / MAS opaque tokens (syt_<b64 user>_<random>_<checksum>, mat_/mct_/mar_/mcr_…) wherever
+    // they appear, even without a key or header in front of them (e.g. in an error message).
+    private val matrixTokenRegex = Regex("\\b(?:syt|mat|mct|mar|mcr)_[A-Za-z0-9_.-]{12,}")
     private const val SECRET_KEYS =
         "(?:access_token|refresh_token|password|login_token|loginToken|id_token|client_secret|recovery_key)"
     // Quoted values, plain or backslash-escaped JSON (e.g. password\":\"x). The opening quote and
@@ -107,6 +110,7 @@ object DebugLog {
         return out
             .replace(authHeaderRegex, "$1***")
             .replace(bearerRegex, "$1***")
+            .replace(matrixTokenRegex, "***")
             .replace(quotedSecretRegex, "$1***")
             .replace(bareSecretRegex, "$1***")
     }

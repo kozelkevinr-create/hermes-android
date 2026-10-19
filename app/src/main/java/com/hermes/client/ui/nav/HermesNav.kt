@@ -268,6 +268,9 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
             composable("settings_connection") {
                 com.hermes.client.ui.settings.ConnectionSettingsScreen(onBack = { nav.popBackStack() })
             }
+            composable("settings_matrix") {
+                com.hermes.client.ui.matrix.MatrixAccountScreen(onBack = { nav.popBackStack() })
+            }
             composable("settings_diagnostics") {
                 com.hermes.client.ui.settings.DiagnosticsScreen(onBack = { nav.popBackStack() })
             }

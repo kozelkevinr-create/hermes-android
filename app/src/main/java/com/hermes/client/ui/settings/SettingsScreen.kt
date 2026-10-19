@@ -34,6 +34,8 @@ fun SettingsScreen(
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState())) {
             Entry("Server & token", "Gateway URL and token this app connects to") { onNavigate("settings_connection") }
             HorizontalDivider()
+            Entry("Matrix account", "Homeserver, login and bot for Matrix sessions") { onNavigate("settings_matrix") }
+            HorizontalDivider()
             Entry("Appearance", "Theme, light/dark, tool-call display") { onNavigate("settings_appearance") }
             HorizontalDivider()
             Entry("Notifications", "Approvals, cron, and messaging alerts") { onNavigate("settings_notifications") }

@@ -30,6 +30,12 @@ agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
   `EncryptedCredentialStore`, and don't loosen the network/cleartext config beyond what
   self-hosted private-network use requires. See [SECURITY.md](SECURITY.md). A `gitleaks`
   secret scan runs on every push (pre-push hook + CI).
+- **Dependencies:** `gradle/verification-metadata.xml` pins sha256 checksums for the whole
+  dependency graph (including the GitHub-hosted `org.rustls` artifacts). Any dependency or plugin
+  bump, Dependabot PRs included, must regenerate it in the same PR:
+  `./gradlew --no-daemon --refresh-dependencies --write-verification-metadata sha256 :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease :app:assembleBeta`
+  (`--refresh-dependencies` matters: a warm cache hides build-script artifacts). Review the diff
+  for unexpected new components before committing.
 - **Commits:** [Conventional Commits](https://www.conventionalcommits.org)
   (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`, `build:`, `ci:`). No
   AI/assistant attribution in commits or PRs.

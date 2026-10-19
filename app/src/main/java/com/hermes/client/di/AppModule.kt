@@ -3,6 +3,11 @@ package com.hermes.client.di
 import android.content.Context
 import com.hermes.client.data.auth.CredentialStore
 import com.hermes.client.data.auth.EncryptedCredentialStore
+import com.hermes.client.data.matrix.EncryptedKeyValueStore
+import com.hermes.client.data.matrix.MatrixAccountStore
+import com.hermes.client.data.matrix.MatrixClientManager
+import com.hermes.client.data.matrix.MatrixSdk
+import com.hermes.client.data.matrix.RustMatrixSdk
 import com.hermes.client.data.network.GatedAuth
 import com.hermes.client.data.network.GatedAuthenticator
 import com.hermes.client.data.network.HermesGatewayClient
@@ -59,6 +64,29 @@ object AppModule {
     @Singleton
     fun provideCredentialStore(@ApplicationContext context: Context): CredentialStore =
         EncryptedCredentialStore(context)
+
+    @Provides
+    @Singleton
+    fun provideMatrixAccountStore(@ApplicationContext context: Context): MatrixAccountStore =
+        MatrixAccountStore(EncryptedKeyValueStore(context))
+
+    @Provides
+    @Singleton
+    fun provideMatrixSdk(@ApplicationContext context: Context): MatrixSdk = RustMatrixSdk(context)
+
+    @Provides
+    @Singleton
+    fun provideMatrixClientManager(
+        @ApplicationContext context: Context,
+        sdk: MatrixSdk,
+        store: MatrixAccountStore,
+    ): MatrixClientManager = MatrixClientManager(
+        sdk = sdk,
+        store = store,
+        storeDir = java.io.File(context.filesDir, "matrix"),
+        dispatcher = Dispatchers.Default,
+        ioDispatcher = Dispatchers.IO,
+    )
 
     @Provides
     @Singleton

@@ -14,8 +14,12 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
         // JVM support component of rustls-platform-verifier (needed by matrix-rust-sdk's TLS).
-        maven("https://github.com/rustls/rustls-platform-verifier/raw/maven-archive/android-release-support/maven/") {
-            content { includeGroup("org.rustls") }
+        // exclusiveContent: this repo may serve only org.rustls, and org.rustls resolves only here.
+        exclusiveContent {
+            forRepository {
+                maven("https://github.com/rustls/rustls-platform-verifier/raw/maven-archive/android-release-support/maven/")
+            }
+            filter { includeGroup("org.rustls") }
         }
     }
 }

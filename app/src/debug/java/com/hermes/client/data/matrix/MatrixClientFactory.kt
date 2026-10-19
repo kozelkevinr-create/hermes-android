@@ -6,12 +6,8 @@ import java.io.File
 import java.security.SecureRandom
 import org.matrix.rustcomponents.sdk.Client
 import org.matrix.rustcomponents.sdk.ClientBuilder
-import org.matrix.rustcomponents.sdk.LogLevel
 import org.matrix.rustcomponents.sdk.SlidingSyncVersionBuilder
 import org.matrix.rustcomponents.sdk.SqliteStoreBuilder
-import org.matrix.rustcomponents.sdk.TracingConfiguration
-import org.matrix.rustcomponents.sdk.initPlatform
-import org.matrix.rustsdk.Android
 
 /**
  * Spike-quality factory for a matrix-rust-sdk [Client]. Phase 1 replaces the in-memory store
@@ -30,7 +26,7 @@ class MatrixClientFactory(private val context: Context) {
      * these are added on top.
      */
     suspend fun build(homeserverUrl: String, caBytes: ByteArray?): Client {
-        initPlatformOnce(context)
+        MatrixPlatform.initOnce(context)
         val dir = File(context.filesDir, STORE_DIR)
         dir.deleteRecursively()
         val data = File(dir, "data").apply { mkdirs() }
@@ -57,26 +53,5 @@ class MatrixClientFactory(private val context: Context) {
 
     companion object {
         private const val STORE_DIR = "matrix_spike"
-        private var initialised = false
-
-        @Synchronized
-        private fun initPlatformOnce(context: Context) {
-            if (initialised) return
-            Android.init(context.applicationContext)
-            // SDK tracing goes to logcat under the tag "org.matrix.rust.sdk". DEBUG, not TRACE:
-            // TRACE logs HTTP bodies (and so tokens/passwords).
-            initPlatform(
-                TracingConfiguration(
-                    logLevel = LogLevel.DEBUG,
-                    traceLogPacks = emptyList(),
-                    extraTargets = emptyList(),
-                    writeToStdoutOrSystem = true,
-                    writeToFiles = null,
-                    sentryConfig = null,
-                ),
-                false,
-            )
-            initialised = true
-        }
     }
 }
