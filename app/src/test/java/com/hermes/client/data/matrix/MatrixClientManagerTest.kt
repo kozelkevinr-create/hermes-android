@@ -4,8 +4,11 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -31,11 +34,13 @@ private class FakeHandle(
     private val syncError: Throwable? = null,
     private val restoreGate: CompletableDeferred<Unit>? = null,
     private val loginGate: CompletableDeferred<Unit>? = null,
+    private val openTimelineGate: CompletableDeferred<Unit>? = null,
 ) : MatrixClientHandle {
     val diffs = Channel<List<ListDiff<MatrixRoomSummary>>>(Channel.UNLIMITED)
     override val roomDiffs: Flow<List<ListDiff<MatrixRoomSummary>>> = diffs.receiveAsFlow()
     var closed = false
     var serverLoggedOut = false
+    var timelineOpenedWhileClosed = false
 
     override suspend fun login(username: String, password: String, deviceName: String): MatrixSessionData {
         log += "login:$username"
@@ -56,6 +61,17 @@ private class FakeHandle(
     }
 
     override suspend fun stopSync() { log += "stopSync" }
+
+    override suspend fun openTimeline(roomId: String): MatrixTimelineHandle? {
+        if (closed) {
+            timelineOpenedWhileClosed = true
+            return null
+        }
+        openTimelineGate?.await()
+        log += "openTimeline:$roomId"
+        return FakeTimelineHandle()
+    }
+
     override suspend fun logout() {
         check(!closed) { "logout after close" }
         serverLoggedOut = true
@@ -67,6 +83,13 @@ private class FakeHandle(
         diffs.close()
         log += "close"
     }
+}
+
+private class FakeTimelineHandle : MatrixTimelineHandle {
+    override val items: StateFlow<List<TimelineEntry>> = MutableStateFlow(emptyList())
+    override val paginationState: StateFlow<PaginationState> = MutableStateFlow(PaginationState.Idle)
+    override suspend fun paginateBackwards(count: Int): Boolean = false
+    override fun close() {}
 }
 
 private class FakeSdk(var next: () -> FakeHandle) : MatrixSdk {
@@ -415,6 +438,32 @@ class MatrixClientManagerTest {
         assertTrue(log.indexOf("serverLogout") < log.indexOf("close"))
         // Passphrase is kept (generated once).
         assertNotNull((kv as FakeKeyValueStore).map.values.firstOrNull { it.length == 64 })
+    }
+
+    @Test fun open_timeline_serialises_with_logout_and_never_touches_a_closed_handle() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        sdk.next = { FakeHandle(log, openTimelineGate = gate) }
+        val m = manager()
+        m.doLogin().join()
+        val h = sdk.handles.single()
+
+        val opened = async { m.openTimeline("!room:x") }
+        runCurrent()
+        // openTimeline holds the lock, blocked on the gate; logout must not have torn down yet.
+        assertFalse(h.closed)
+
+        val logoutJob = m.logout()
+        runCurrent()
+        // logout is waiting on the lock held by the in-flight open, so nothing is torn down.
+        assertFalse(h.closed)
+        assertTrue(logoutJob.isActive)
+
+        gate.complete(Unit)
+        val handle = opened.await()
+        assertNotNull(handle) // the open completed before teardown
+        logoutJob.join()
+        assertTrue(h.closed)
+        assertFalse(h.timelineOpenedWhileClosed)
     }
 
     @Test fun room_diffs_are_applied_as_immutable_snapshots() = runTest {

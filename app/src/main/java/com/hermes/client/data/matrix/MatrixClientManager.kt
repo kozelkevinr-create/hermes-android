@@ -89,8 +89,22 @@ class MatrixClientManager(
     /** Called from app start; does nothing without a saved session. Also the "Retry" action. */
     fun restoreOnStart(): Job = launchOp { doRestore() }
 
-    /** Opens a live read-only timeline for [roomId], or null when the room is unknown or no session is live. */
-    suspend fun openTimeline(roomId: String): MatrixTimelineHandle? = withContext(dispatcher) { handle?.openTimeline(roomId) }
+    /**
+     * Opens a live read-only timeline for [roomId], or null when the room is unknown or no session is
+     * live. The handle lookup and `client.getRoom`/`room.timeline` run under [lock] — the same mutex
+     * logout and shutdown hold around [teardown] — so an open can never observe a client mid-destroy.
+     *
+     * The lock is held only for opening: the returned handle owns its own collector, and nothing here
+     * collects or awaits it. [lock] is also held across a whole login (network I/O), so when no session
+     * is live we return null before taking the lock; opening a room therefore never blocks behind a long
+     * login. The remaining wait is only for a logout/teardown already in flight, which is short.
+     */
+    suspend fun openTimeline(roomId: String): MatrixTimelineHandle? {
+        if (_state.value !is MatrixState.Ready) return null
+        return lock.withLock {
+            withContext(dispatcher) { handle?.openTimeline(roomId) }
+        }
+    }
 
     /** Server logout (best effort), then stop, destroy and wipe everything local. Preempts a running login/restore. */
     fun logout(): Job {
@@ -283,6 +297,8 @@ class MatrixClientManager(
         _rooms.value = emptyList()
         if (h != null) {
             try {
+                // No timeout here: close() awaits every open timeline's teardown, and a timeout would
+                // let us destroy the client while a native call is still in flight — a use-after-free.
                 h.close()
             } catch (e: Exception) {
                 DebugLog.log("matrix-error", "close failed: ${describe(e)}")

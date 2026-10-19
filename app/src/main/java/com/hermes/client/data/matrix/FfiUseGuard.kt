@@ -1,8 +1,10 @@
 package com.hermes.client.data.matrix
 
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
 
 /**
@@ -38,7 +40,10 @@ internal class FfiUseGuard(private val onDestroy: () -> Unit) {
     suspend fun <T> use(whenClosed: T, block: suspend () -> T): T {
         if (!enter()) return whenClosed
         try {
-            return block()
+            // Run the block under a context marker so closeAndAwait() can prove it is not being
+            // called from inside this very block (which would deadlock). The marker travels with
+            // the coroutine across suspension and thread hops.
+            return withContext(InUse) { block() }
         } finally {
             exit()
         }
@@ -54,8 +59,15 @@ internal class FfiUseGuard(private val onDestroy: () -> Unit) {
      * Refuses new uses, waits for in-flight ones, then runs [onDestroy] exactly once. Concurrent and
      * repeated calls all return only after the destroy has completed. Not cancellable, so a cancelled
      * caller can never leave the object half torn down.
+     *
+     * Must never be called from inside a [use] block: it waits for the in-flight count to reach zero,
+     * which only happens when that same block returns — a deadlock. The [InUse] context-marker check
+     * fails fast with an [IllegalStateException] in that case, before anything is touched.
      */
     suspend fun closeAndAwait() = withContext(NonCancellable) {
+        check(currentCoroutineContext()[InUse] == null) {
+            "closeAndAwait() must not be called from inside a use {} block"
+        }
         beginClose()
         if (destroyStarted.compareAndSet(false, true)) {
             try {
@@ -68,6 +80,11 @@ internal class FfiUseGuard(private val onDestroy: () -> Unit) {
             destroyed.await()
         }
     }
+}
+
+/** Context marker attached while a [FfiUseGuard.use] block runs, so [FfiUseGuard.closeAndAwait] can detect reentrancy. */
+private object InUse : CoroutineContext.Element, CoroutineContext.Key<InUse> {
+    override val key: CoroutineContext.Key<*> get() = this
 }
 
 /** Something that tears itself down in the background and can report when that has finished. */

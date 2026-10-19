@@ -27,6 +27,14 @@ class FfiUseGuardTest {
     }
 
     @Test
+    fun closeAndAwait_inside_use_fails_fast_instead_of_deadlocking() = runBlocking {
+        val guard = FfiUseGuard {}
+        val thrown = runCatching { guard.use(Unit) { guard.closeAndAwait() } }
+        assertTrue(thrown.isFailure)
+        assertTrue(thrown.exceptionOrNull() is IllegalStateException)
+    }
+
+    @Test
     fun destroy_waits_for_an_in_flight_use() = runBlocking {
         val destroys = AtomicInteger()
         val guard = FfiUseGuard { destroys.incrementAndGet() }
@@ -36,8 +44,11 @@ class FfiUseGuardTest {
             guard.use(0) { started.complete(Unit); release.await(); 1 }
         }
         started.await()
+        // Refuse new uses synchronously; no timing assumption needed before the assertions below.
+        guard.beginClose()
         val closing = async(kotlinx.coroutines.Dispatchers.Default) { guard.closeAndAwait() }
-        delay(100)
+        // The in-flight use still holds the guard, so destroy cannot have run regardless of how far
+        // `closing` has progressed: closeAndAwait() awaits it.
         assertEquals(0, destroys.get())
         // New uses are already refused while the old one is still running.
         assertEquals(-1, guard.use(-1) { 2 })
