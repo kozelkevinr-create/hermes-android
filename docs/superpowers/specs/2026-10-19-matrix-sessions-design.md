@@ -1,7 +1,7 @@
 # Matrix Sessions — Design
 
 **Date:** 2026-10-19
-**Status:** Phase 0 (spike) and Phase 1a (account, client manager) implemented; Phase 1b (release ABI splits) and phases 2-7 planned
+**Status:** Phase 0 (spike), Phase 1a (account, client manager) and Phase 2 (room list) implemented; Phase 1b (release ABI splits) and phases 3-7 planned
 **Branch:** `feature/matrix-sessions`
 
 ## Goal
@@ -22,7 +22,7 @@ Encrypted and unencrypted rooms must both work, so the client uses the matrix-ru
 |---|-------|-------|
 | 0 | Spike | SDK dependency, API notes, TLS/cleartext findings, debug-only test screen (this doc) |
 | 1 | Account setup | Homeserver, password login, bot MXID, CA import (always with `disableBuiltInRootCertificates()`), encrypted session storage, store passphrase in Android Keystore |
-| 2 | Room list | Sessions tab room list + Matrix / Gateway toggle |
+| 2 | Room list (done) | Sessions tab room list + Matrix / Gateway toggle |
 | 3 | Room timeline | Paginate, live diffs, edits, send text/images, read receipts |
 | 4 | Command wrapper | Palette of Hermes messaging commands (`/new /stop /model /usage /retry /undo /title /status /help /personality /approve /deny` ...); native New session -> `/new`, model picker -> `/model`, stop -> `/stop`; approval prompts get approve / always / deny buttons that send the matching reactions |
 | 5 | New-room sheet | Encrypted toggle (default from a setting); create DM + invite bot |
@@ -132,6 +132,14 @@ Source: `client_builder.rs` in the SDK repo and strings in the shipped `libmatri
 - **Store slots:** each login builds its client in a fresh slot directory (`files/matrix/s0` or `s1`, recorded as `storeSlot` in the account store). A failed login deletes only its own slot and restores the previous account entry, so it can never cost the user a good saved session; a successful one deletes the old slot afterwards (that deletion, and everything after activation, is not rolled back by a cancel). If the server login succeeded but a later step fails, the new device is logged out on the server. Token refreshes from the SDK delegate are applied only to the saved user/device. Logout wipes all slots and the account store (the passphrase is kept).
 - **Device name:** the Matrix device is registered as "Hermes Local".
 - **Backups and ABIs:** the SDK database and the encrypted account prefs are excluded from cloud backup and device transfer. Release and beta are limited to `arm64-v8a` until Phase 1b adds ABI splits.
+
+## Phase 2 (done)
+
+- **Toggle:** the Chats tab opens with a Matrix | Gateway switch. Gateway shows the existing gateway list unchanged; Matrix shows the room list. The default is Matrix when a Matrix session is saved and Gateway otherwise. The user's choice is persisted in DataStore (`ChatsSourceStore`, `ui/matrix/ChatsSource`).
+- **Rows:** `MatrixRoomSummary` gained `lastMessagePreview`, `lastMessageSender`, `lastActivityTs` and `avatarLetter`, filled from `Room.latestEvent()` (`LatestEventValue.Remote`/`Local`: `timestamp` is a ULong of epoch millis, `sender`, `profile`, `content`). Previews are plain text, one line, capped at 120 characters (`data/matrix/MessagePreview`). An undecryptable event shows "Encrypted message".
+- **List:** SDK recency order (`sortByRecency` keeps it, rooms without activity last). Search matches the name and the preview. Rows show the avatar letter, name, lock when encrypted, "sender: preview", the activity time (`HH:mm`, "Yesterday" or a date) and an unread badge (`ui/matrix/RoomListPresentation`).
+- **States:** signed out (Set up Matrix opens the account screen), restoring or logging in (loading), restore failed (banner with Retry, or Set up Matrix when the server rejected the token), login error, and no rooms.
+- **Placeholder:** `matrix_room/{roomId}` (room ID URL-encoded) shows the room name and "Room view arrives in Phase 3". No new-room button yet (Phase 5).
 
 ## Out of scope for Phase 0
 
