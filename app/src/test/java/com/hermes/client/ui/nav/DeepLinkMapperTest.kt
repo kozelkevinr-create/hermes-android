@@ -9,6 +9,8 @@ import org.junit.Test
 class DeepLinkMapperTest {
     @Test fun tab_routes_map() {
         assertEquals("sessions", deepLinkRouteFor("hermes://tab/sessions"))
+        assertEquals("gateway_sessions", deepLinkRouteFor("hermes://gateway/sessions"))
+        assertNull(deepLinkRouteFor("hermes://gateway/other"))
         assertEquals("activity", deepLinkRouteFor("hermes://tab/activity"))
         assertEquals("you", deepLinkRouteFor("hermes://tab/you"))
     }

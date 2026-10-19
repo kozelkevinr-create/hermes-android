@@ -39,7 +39,7 @@ class HermesWidget : GlanceAppWidget() {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Item(context, "> new_chat", "hermes://new")
-            Item(context, "> sessions", "hermes://tab/sessions")
+            Item(context, "> sessions", "hermes://gateway/sessions")
             Item(context, "> activity", "hermes://tab/activity")
         }
     }

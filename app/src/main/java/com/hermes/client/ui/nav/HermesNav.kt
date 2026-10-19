@@ -190,23 +190,21 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
             }
             // ---- Tab roots ----
             composable("sessions") {
+                // The Chats tab is the Matrix room list only; gateway sessions live under Settings.
+                com.hermes.client.ui.matrix.MatrixRoomListScreen(
+                    // Room ids contain '!' and ':', so they travel URL-encoded as one path segment.
+                    onOpenRoom = { id -> nav.navigate("matrix_room/${Uri.encode(id)}") },
+                    onSetup = { nav.navigate("settings_matrix") { launchSingleTop = true } },
+                )
+            }
+            composable("gateway_sessions") {
                 SessionsScreen(
                     onOpen = { id -> nav.navigate("chat/$id") },
+                    onMenu = back,
                     onOpenArchived = { nav.navigate("archived") },
                     onUnauthorized = onUnauthorized,
-                    // Room ids contain '!' and ':', so they travel URL-encoded as one path segment.
-                    onOpenMatrixRoom = { id -> nav.navigate("matrix_room/${Uri.encode(id)}") },
-                    onSetupMatrix = { nav.navigate("settings_matrix") { launchSingleTop = true } },
                 )
             }
-            composable("matrix_room/{roomId}") { entry ->
-                com.hermes.client.ui.matrix.MatrixRoomScreen(
-                    roomId = entry.arguments?.getString("roomId") ?: "",
-                    onBack = back,
-                )
-            }
-            composable("activity") { com.hermes.client.ui.activity.MissionControlScreen(onNavigate = push) }
-            composable("you") { YouHubScreen(onNavigate = push) }
 
             // ---- Pushed screens (back arrow) ----
             composable("archived") {

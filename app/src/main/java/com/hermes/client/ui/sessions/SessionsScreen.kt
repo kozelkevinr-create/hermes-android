@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.Close
@@ -65,57 +66,23 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hermes.client.domain.Session
-import com.hermes.client.ui.matrix.ChatsSource
-import com.hermes.client.ui.matrix.ChatsSourceToggle
-import com.hermes.client.ui.matrix.ChatsSourceViewModel
-import com.hermes.client.ui.matrix.MatrixRoomListScreen
 import com.hermes.client.ui.record.RecordPhase
 import com.hermes.client.ui.record.RecordTaskSheet
 import com.hermes.client.ui.record.RecordTaskViewModel
 import kotlinx.coroutines.launch
 
 /**
- * The Chats tab: a Matrix | Gateway switch over two lists. The gateway list is the screen below,
- * unchanged; the Matrix list is [MatrixRoomListScreen]. The gateway ViewModel is only created while
- * the gateway list is showing.
+ * The gateway session list, reached from Settings → Sessions (the Chats tab is Matrix-only).
+ * [onMenu] is its back action.
  */
-@Composable
-fun SessionsScreen(
-    onOpen: (String) -> Unit,
-    onMenu: () -> Unit = {},
-    onOpenArchived: () -> Unit = {},
-    onUnauthorized: () -> Unit = {},
-    onOpenMatrixRoom: (String) -> Unit = {},
-    onSetupMatrix: () -> Unit = {},
-    chatsVm: ChatsSourceViewModel = hiltViewModel(),
-) {
-    // Null until the saved choice has loaded: draw nothing rather than flip between lists.
-    val source by chatsVm.source.collectAsStateWithLifecycle()
-    val toggle: @Composable () -> Unit = {
-        ChatsSourceToggle(selected = source ?: ChatsSource.GATEWAY, onSelect = chatsVm::select)
-    }
-    when (source) {
-        null -> Unit
-        ChatsSource.MATRIX -> MatrixRoomListScreen(sourceToggle = toggle, onOpenRoom = onOpenMatrixRoom, onSetup = onSetupMatrix)
-        ChatsSource.GATEWAY -> GatewaySessionsScreen(
-            onOpen = onOpen,
-            onMenu = onMenu,
-            onOpenArchived = onOpenArchived,
-            onUnauthorized = onUnauthorized,
-            sourceToggle = toggle,
-        )
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun GatewaySessionsScreen(
+fun SessionsScreen(
     vm: SessionsViewModel = hiltViewModel(),
     onOpen: (String) -> Unit,
     onMenu: () -> Unit = {},
     onOpenArchived: () -> Unit = {},
     onUnauthorized: () -> Unit = {},
-    sourceToggle: @Composable () -> Unit = {},
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val activeProfile by vm.activeProfile.collectAsStateWithLifecycle()
@@ -179,6 +146,11 @@ private fun GatewaySessionsScreen(
             Column {
                 com.hermes.client.ui.components.HermesTopBar(
                     title = "Chats",
+                    navigationIcon = {
+                        IconButton(onClick = onMenu) {
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                        }
+                    },
                     actions = {
                         IconButton(onClick = { onMicTap() }) {
                             Icon(Icons.Rounded.Mic, contentDescription = "Record a task")
@@ -191,7 +163,6 @@ private fun GatewaySessionsScreen(
                         ) { Text("Archived") }
                     },
                 )
-                sourceToggle()
                 // Same tenant switcher as Agent Activity: a chip row, active one selected. Tapping
                 // switches the active profile and the list re-fetches.
                 // Sessions mode spans all profiles (REST); Projects mode is single-profile (the

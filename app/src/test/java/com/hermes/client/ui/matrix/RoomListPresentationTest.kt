@@ -31,16 +31,28 @@ class RoomListPresentationTest {
     private val now = 1_792_411_200_000L
     private val hour = 3_600_000L
 
-    @Test fun sdk_order_is_kept_even_when_latest_timestamps_disagree() {
+    @Test fun sort_is_newest_last_message_first_with_no_activity_last() {
         val rooms = listOf(
             room("a", "A", ts = now - 5 * hour),
             room("b", "B", ts = null),
             room("c", "C", ts = now - hour),
+            room("d", "D", ts = null),
         )
-        val state = roomListUiState(
-            MatrixState.Ready("@me:x", "DEV", "https://x", "@bot:x"), rooms, "",
-        ) as RoomListUiState.Ready
-        assertEquals(listOf("a", "b", "c"), state.rooms.map { it.id })
+        assertEquals(listOf("c", "a", "b", "d"), sortByRecency(rooms).map { it.id })
+    }
+
+    @Test fun equal_times_keep_the_sdk_order_and_do_not_float_unread_rooms() {
+        val rooms = listOf(
+            room("first", "F", ts = now - hour),
+            room("unread", "U", ts = now - 2 * hour, unread = 9),
+            room("second", "S", ts = now - hour),
+            room("none-1", "N", ts = null),
+            room("none-2", "M", ts = null),
+        )
+        assertEquals(
+            listOf("first", "second", "unread", "none-1", "none-2"),
+            sortByRecency(rooms).map { it.id },
+        )
     }
 
     @Test fun filter_matches_name_and_preview_case_insensitively() {
@@ -89,7 +101,7 @@ class RoomListPresentationTest {
         val ready = MatrixState.Ready("@me:x", "DEV", "https://x", "@bot:x")
         val rooms = listOf(room("old", "Old", ts = now - 9 * hour), room("new", "New", ts = now - hour))
         val all = roomListUiState(ready, rooms, "") as RoomListUiState.Ready
-        assertEquals(listOf("old", "new"), all.rooms.map { it.id })
+        assertEquals(listOf("new", "old"), all.rooms.map { it.id })
         val state = roomListUiState(ready, rooms, " new ") as RoomListUiState.Ready
         assertEquals(listOf("new"), state.rooms.map { it.id })
         assertEquals("new", state.query)

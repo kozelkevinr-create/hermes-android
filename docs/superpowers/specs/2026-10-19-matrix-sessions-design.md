@@ -6,7 +6,7 @@
 
 ## Goal
 
-The **Sessions tab becomes a Matrix room list**, modelled on Element X: every room is a persistent chat with the Hermes bot. The user starts a new conversation either by creating a new room or by sending `/new` inside an existing one. A **Matrix | Gateway toggle** keeps the existing gateway session list, because Mission Control and cron still rely on gateway sessions.
+The **Chats tab becomes a Matrix room list**, modelled on Element X: every room is a persistent chat with the Hermes bot. The user starts a new conversation either by creating a new room or by sending `/new` inside an existing one. The existing gateway session list moves to **Settings → Sessions** (`gateway_sessions`), because Mission Control and cron still rely on gateway sessions. The user chose this over an in-tab Matrix | Gateway toggle, which was the earlier plan and has been removed.
 
 Encrypted and unencrypted rooms must both work, so the client uses the matrix-rust-sdk Kotlin bindings (`org.matrix.rustcomponents:sdk-android`, Apache-2.0) rather than a hand-rolled REST client.
 
@@ -22,7 +22,7 @@ Encrypted and unencrypted rooms must both work, so the client uses the matrix-ru
 |---|-------|-------|
 | 0 | Spike | SDK dependency, API notes, TLS/cleartext findings, debug-only test screen (this doc) |
 | 1 | Account setup | Homeserver, password login, bot MXID, CA import (always with `disableBuiltInRootCertificates()`), encrypted session storage, store passphrase in Android Keystore |
-| 2 | Room list (done) | Sessions tab room list + Matrix / Gateway toggle |
+| 2 | Room list (done) | Chats tab is the Matrix room list only; gateway sessions under Settings → Sessions |
 | 3 | Room timeline | Paginate, live diffs, edits, send text/images, read receipts |
 | 4 | Command wrapper | Palette of Hermes messaging commands (`/new /stop /model /usage /retry /undo /title /status /help /personality /approve /deny` ...); native New session -> `/new`, model picker -> `/model`, stop -> `/stop`; approval prompts get approve / always / deny buttons that send the matching reactions |
 | 5 | New-room sheet | Encrypted toggle (default from a setting); create DM + invite bot |
@@ -135,9 +135,11 @@ Source: `client_builder.rs` in the SDK repo and strings in the shipped `libmatri
 
 ## Phase 2 (done)
 
-- **Toggle:** the Chats tab opens with a Matrix | Gateway switch. Gateway shows the existing gateway list unchanged; Matrix shows the room list. The default is Matrix when a Matrix session is saved and Gateway otherwise. The user's choice is persisted in DataStore (`ChatsSourceStore`, `ui/matrix/ChatsSource`).
+- **Chats tab is Matrix-only.** The user decided this, replacing the Matrix | Gateway toggle in the first plan. The tab shows the room list. With no Matrix account it shows the "Set up Matrix" empty state.
+- **Gateway sessions:** Settings → Sessions opens `gateway_sessions`, the unchanged gateway list (grouping, search, pins, archive, Archived, session admin). Opening a session still goes to `chat/{id}`. The widget's "sessions" item and `hermes://gateway/sessions` open it too.
+- **Profiles:** `ShellViewModel` already refreshes the profile manager at startup, so `profileManager.active` is set for Mission Control, new chat and share.
 - **Rows:** `MatrixRoomSummary` gained `lastMessagePreview`, `lastMessageSender`, `lastActivityTs` and `avatarLetter`, filled from `Room.latestEvent()` (`LatestEventValue.Remote`/`Local`: `timestamp` is a ULong of epoch millis, `sender`, `profile`, `content`). Previews are plain text, one line, capped at 120 characters (`data/matrix/MessagePreview`). An undecryptable event shows "Encrypted message".
-- **List:** the SDK's room order (sliding-sync recency) is used as-is; the latest-event timestamp is not re-sorted on because it can disagree with the SDK stamp. Search matches the name and the preview. Rows show the avatar letter, name, lock when encrypted, "sender: preview", the activity time (`HH:mm`, "Yesterday" or a date) and an unread badge (`ui/matrix/RoomListPresentation`).
+- **List:** sorted by last message time, newest first. Equal times keep the SDK order (the sort is stable); rooms without activity sort last. Search matches the name and the preview. Rows show the avatar letter, name, lock when encrypted, "sender: preview", the activity time (`HH:mm`, "Yesterday" or a date) and an unread badge (`ui/matrix/RoomListPresentation`).
 - **States:** signed out (Set up Matrix opens the account screen), restoring or logging in (loading), restore failed (banner with Retry, or Set up Matrix when the server rejected the token), login error, and no rooms.
 - **Placeholder:** `matrix_room/{roomId}` (room ID URL-encoded) shows the room name and "Room view arrives in Phase 3". No new-room button yet (Phase 5).
 

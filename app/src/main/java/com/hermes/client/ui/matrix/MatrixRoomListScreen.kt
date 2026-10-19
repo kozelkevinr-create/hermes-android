@@ -46,25 +46,16 @@ import com.hermes.client.ui.components.LoadingState
 import com.hermes.client.ui.theme.LocalProfileAccent
 import com.hermes.client.ui.theme.rememberProfileAccent
 
-/**
- * The Chats tab's Matrix list: one row per room, newest activity first. [sourceToggle] is the
- * Matrix | Gateway switch, drawn above the list.
- */
+/** The Chats tab: the Matrix room list, one row per room in the SDK's recency order. */
 @Composable
 fun MatrixRoomListScreen(
-    sourceToggle: @Composable () -> Unit,
     onOpenRoom: (String) -> Unit,
     onSetup: () -> Unit,
     vm: MatrixRoomListViewModel = hiltViewModel(),
 ) {
     val ui by vm.uiState.collectAsStateWithLifecycle()
     Scaffold(
-        topBar = {
-            Column {
-                HermesTopBar(title = "Chats")
-                sourceToggle()
-            }
-        },
+        topBar = { HermesTopBar(title = "Chats") },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             when (val s = ui) {

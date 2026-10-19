@@ -195,13 +195,6 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideChatsSourceStore(
-        @ApplicationContext context: Context,
-    ): com.hermes.client.data.repository.ChatsSourceStore =
-        com.hermes.client.data.repository.ChatsSourceStore(context)
-
-    @Provides
-    @Singleton
     fun provideProfileAccentStore(
         @ApplicationContext context: Context,
     ): com.hermes.client.data.repository.ProfileAccentStore =

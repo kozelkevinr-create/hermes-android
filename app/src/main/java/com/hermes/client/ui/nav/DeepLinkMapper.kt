@@ -16,6 +16,8 @@ fun deepLinkRouteFor(raw: String): String? {
     return when (host) {
         "tab" -> segs.singleOrNull()?.takeIf { it in TAB_ROUTES }
         "chat" -> segs.singleOrNull()?.takeIf { it.isNotBlank() && '/' !in it }?.let { "chat/$it" }
+        // The gateway session list (Settings → Sessions); the Chats tab is Matrix-only.
+        "gateway" -> segs.singleOrNull()?.takeIf { it == "sessions" }?.let { "gateway_sessions" }
         else -> null
     }
 }

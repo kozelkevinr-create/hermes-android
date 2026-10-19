@@ -19,6 +19,13 @@ sealed interface RoomListUiState {
     data class Ready(val rooms: List<MatrixRoomSummary>, val query: String, val hasAnyRooms: Boolean) : RoomListUiState
 }
 
+/**
+ * Newest last-message time first. Equal times keep the SDK order (sort is stable); rooms without
+ * any activity sort last.
+ */
+fun sortByRecency(rooms: List<MatrixRoomSummary>): List<MatrixRoomSummary> =
+    rooms.sortedByDescending { it.lastActivityTs ?: Long.MIN_VALUE }
+
 /** Case-insensitive match on the room name or its last message preview. A blank query keeps everything. */
 fun filterRooms(rooms: List<MatrixRoomSummary>, query: String): List<MatrixRoomSummary> {
     val q = query.trim()
@@ -57,10 +64,7 @@ fun roomListUiState(matrix: MatrixState, rooms: List<MatrixRoomSummary>, query: 
         is MatrixState.RestoreFailed -> RoomListUiState.RestoreFailed(matrix.message, matrix.retryable)
         is MatrixState.Error -> RoomListUiState.Failed(matrix.message)
         is MatrixState.Ready -> RoomListUiState.Ready(
-            // The SDK's list order is the recency order (sliding sync), so it is used as-is. The latest
-            // event timestamp can disagree with it (state, UTD, invite and local echo events), so we
-            // never re-sort by it.
-            rooms = filterRooms(rooms, query),
+            rooms = filterRooms(sortByRecency(rooms), query),
             query = query.trim(),
             hasAnyRooms = rooms.isNotEmpty(),
         )
