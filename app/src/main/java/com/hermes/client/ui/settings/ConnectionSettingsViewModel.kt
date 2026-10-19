@@ -6,6 +6,7 @@ import com.hermes.client.data.auth.CredentialStore
 import com.hermes.client.data.auth.GatewayConfig
 import com.hermes.client.data.network.GatedAuth
 import com.hermes.client.data.network.HermesRestApi
+import com.hermes.client.data.network.message
 import com.hermes.client.data.repository.ChatRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -53,12 +54,12 @@ class ConnectionSettingsViewModel @Inject constructor(
      *  otherwise a plain status check. */
     fun test() = viewModelScope.launch {
         val s = _state.value
-        val ok = if (s.username.isNotBlank()) {
+        val result = if (s.username.isNotBlank()) {
             withContext(Dispatchers.IO) { gatedAuth.probeLogin(s.url, s.username, s.password) }
         } else {
             rest.statusFor(s.url, s.token)
         }
-        _state.value = _state.value.copy(testResult = if (ok) "Connected ✓" else "Failed — check the details")
+        _state.value = _state.value.copy(testResult = result.message())
     }
 
     /** Persist the new server/credentials, drop any stale session, then reconnect. */

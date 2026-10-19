@@ -55,18 +55,29 @@ class HermesRestApi(
      * T10b: test connectivity using explicitly supplied credentials WITHOUT reading from
      * configProvider. Used by SetupViewModel.test() so unverified creds are never persisted.
      */
-    suspend fun statusFor(baseUrl: String, token: String): Boolean = withContext(Dispatchers.IO) {
-        runCatching {
-            val rb = Request.Builder().url("${baseUrl.trimEnd('/')}/api/status").get()
-            if (token.isNotBlank()) rb.header("X-Hermes-Session-Token", token)
-            okHttp.newCall(rb.build()).execute().use { it.isSuccessful }
-        }.getOrDefault(false)
-    }
+    suspend fun statusFor(baseUrl: String, token: String): GatewayProbeResult =
+        withContext(Dispatchers.IO) {
+            try {
+                val rb = Request.Builder().url("${baseUrl.trimEnd('/')}/api/status").get()
+                if (token.isNotBlank()) rb.header("X-Hermes-Session-Token", token)
+                okHttp.newCall(rb.build()).execute().use { resp ->
+                    when {
+                        resp.isSuccessful -> GatewayProbeResult.Connected
+                        resp.code == 401 || resp.code == 403 -> GatewayProbeResult.TokenRejected
+                        else -> GatewayProbeResult.Unexpected(resp.code)
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                e.toProbeFailure()
+            }
+        }
 
     /** Delegates to [statusFor] using the current stored config. */
     suspend fun status(): Boolean {
         val cfg = configProvider() ?: return false
-        return statusFor(cfg.baseUrl, cfg.token)
+        return statusFor(cfg.baseUrl, cfg.token) == GatewayProbeResult.Connected
     }
 
     /** Public /api/status — gateway version + running state. */

@@ -2,6 +2,7 @@ package com.hermes.client.ui.settings
 
 import com.hermes.client.data.auth.CredentialStore
 import com.hermes.client.data.auth.GatewayConfig
+import com.hermes.client.data.network.GatewayProbeResult
 import com.hermes.client.data.network.HermesRestApi
 import com.hermes.client.data.repository.ChatRepository
 import io.mockk.coEvery
@@ -50,7 +51,7 @@ class ConnectionSettingsViewModelTest {
 
     @Test fun test_probes_with_entered_values_without_saving() = runTest {
         every { store.load() } returns null
-        coEvery { rest.statusFor("https://h", "t") } returns true
+        coEvery { rest.statusFor("https://h", "t") } returns GatewayProbeResult.Connected
         val vm = buildVm()
         vm.onUrlChange("https://h")
         vm.onTokenChange("t")
@@ -58,6 +59,6 @@ class ConnectionSettingsViewModelTest {
         advanceUntilIdle()
         coVerify { rest.statusFor("https://h", "t") }
         verify(exactly = 0) { store.save(any()) }
-        assertEquals("Connected ✓", vm.state.value.testResult)
+        assertEquals("Connected", vm.state.value.testResult)
     }
 }

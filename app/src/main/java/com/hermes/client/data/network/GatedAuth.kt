@@ -103,19 +103,27 @@ class GatedAuth(
      * One-off login probe with explicit values for the setup "Test" button — uses a throwaway
      * client so it neither persists creds nor disturbs the live session cookies.
      */
-    fun probeLogin(baseUrl: String, username: String, password: String): Boolean {
+    fun probeLogin(baseUrl: String, username: String, password: String): GatewayProbeResult {
         val payload: JsonObject = buildJsonObject {
             put("provider", "basic")
             put("username", username)
             put("password", password)
         }
-        return runCatching {
+        return try {
             val req = Request.Builder()
                 .url("${baseUrl.trimEnd('/')}/auth/password-login")
                 .post(json.encodeToString(JsonObject.serializer(), payload).toRequestBody(JSON_MEDIA))
                 .build()
-            OkHttpClient().newCall(req).execute().use { it.isSuccessful }
-        }.getOrDefault(false)
+            OkHttpClient().newCall(req).execute().use { resp ->
+                when {
+                    resp.isSuccessful -> GatewayProbeResult.Connected
+                    resp.code == 401 || resp.code == 403 -> GatewayProbeResult.WrongCredentials
+                    else -> GatewayProbeResult.Unexpected(resp.code)
+                }
+            }
+        } catch (e: Exception) {
+            e.toProbeFailure()
+        }
     }
 
     private companion object {

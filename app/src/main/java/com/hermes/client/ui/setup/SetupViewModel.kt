@@ -6,6 +6,7 @@ import com.hermes.client.data.auth.CredentialStore
 import com.hermes.client.data.auth.GatewayConfig
 import com.hermes.client.data.network.GatedAuth
 import com.hermes.client.data.network.HermesRestApi
+import com.hermes.client.data.network.message
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,12 +47,12 @@ class SetupViewModel @Inject constructor(
     // T10b: test() must NOT persist unverified credentials — probe with transient values.
     fun test() = viewModelScope.launch {
         val s = _state.value
-        val ok = if (s.username.isNotBlank()) {
+        val result = if (s.username.isNotBlank()) {
             withContext(Dispatchers.IO) { gatedAuth.probeLogin(s.url, s.username, s.password) }
         } else {
             rest.statusFor(s.url, s.token)
         }
-        _state.value = _state.value.copy(testResult = if (ok) "Connected" else "Unreachable")
+        _state.value = _state.value.copy(testResult = result.message())
     }
 
     fun save() {
