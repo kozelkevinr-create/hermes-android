@@ -103,11 +103,11 @@ ui/          one package per screen (chat, sessions, cron, usage,
 ```
 
 The launcher icon is an adaptive icon at `app/src/main/res/mipmap-anydpi-v26/`: the
-Hermes Agent mascot (black line art on white, matching the desktop app). The foreground
+owner's pixel-art portrait on black (source artwork in `assets/`). The foreground
 is a PNG mipmap (`mipmap-{m,h,xh,xxh,xxxh}dpi/ic_launcher_foreground.png`) rather than a
 vector — the source artwork is too path-dense for the runtime vector parser, which fails
 to inflate it and falls back to the default system icon. The background is a solid-white
-vector in `app/src/main/res/drawable/`.
+vector in `app/src/main/res/drawable/` (solid black, `#FF000000`).
 
 ---
 
