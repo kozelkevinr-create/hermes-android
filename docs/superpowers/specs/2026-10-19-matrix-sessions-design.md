@@ -1,7 +1,7 @@
 # Matrix Sessions — Design
 
 **Date:** 2026-10-19
-**Status:** Phase 0 (spike), Phase 1a (account, client manager) and Phase 2 (room list) implemented; Phase 1b (release ABI splits) and phases 3-7 planned
+**Status:** Phase 0 (spike), Phase 1a (account, client manager), Phase 2 (room list) and Phase 3a (read-only room timeline) implemented; Phase 1b (release ABI splits), 3b (send) and phases 4-7 planned
 **Branch:** `feature/matrix-sessions`
 
 ## Goal
@@ -142,6 +142,17 @@ Source: `client_builder.rs` in the SDK repo and strings in the shipped `libmatri
 - **List:** sorted by last message time, newest first. Equal times keep the SDK order (the sort is stable); rooms without activity sort last. Search matches the name and the preview. Rows show the avatar letter, name, lock when encrypted, "sender: preview", the activity time (`HH:mm`, "Yesterday" or a date) and an unread badge (`ui/matrix/RoomListPresentation`).
 - **States:** signed out (Set up Matrix opens the account screen), restoring or logging in (loading), restore failed (banner with Retry, or Set up Matrix when the server rejected the token), login error, and no rooms.
 - **Placeholder:** `matrix_room/{roomId}` (room ID URL-encoded) shows the room name and "Room view arrives in Phase 3". No new-room button yet (Phase 5).
+
+## Phase 3a (done)
+
+Read-only room timeline on `matrix_room/{roomId}`. Sending (Phase 3b) is deliberately absent: the screen ends in a disabled bar "Sending arrives in Phase 3b".
+
+- **Timeline model (`data/matrix/TimelineModels.kt`):** a pure `TimelineEntry` sealed type — `DayDivider(ts)`, `ReadMarker`, `Message(id, sender, senderName, isOwn, ts, body, isEdited, kind, sendState)`, `Utd(id, sender, ts)`, `StateEvent(id, ts, summary)`, `Unsupported(id)`. `kind` is `TEXT | NOTICE | EMOTE | IMAGE | FILE | OTHER`; `sendState` is `NOT_SENT_YET | SENDING_FAILED | SENT`; plus `PaginationState` (`Idle | Loading | AtStart`).
+- **Seam (`MatrixSdk` / `RustMatrixSdk`):** `MatrixClientHandle.openTimeline(roomId): MatrixTimelineHandle?` (null when the room is unknown). The handle exposes `items: StateFlow<List<TimelineEntry>>`, `suspend paginateBackwards(count): Boolean` (true at the start), `paginationState: StateFlow<PaginationState>` and `close()`. The Rust handle looks the room up with `Client.getRoom`, calls `room.timeline()`, `timeline.addListener(TimelineListener)` and `timeline.subscribeToBackPaginationStatus(PaginationStatusListener)`, then `timeline.paginateBackwards(UShort)` for the first page.
+- **Diff application:** the listener's `List<TimelineDiff>` goes through one `Channel` into one collector, which maps each diff to `ListDiff<TimelineEntry>` via `applyDiffs` and publishes an immutable snapshot. Every `TimelineItem` and its nested content (`TimelineItemContent`, `MsgLikeContent`, `MsgLikeKind`, `MessageContent`, `MessageType`, image/file/audio/video content) is destroyed exactly once in `finally` blocks, including on cancellation; the listener body never throws (a bad item is logged by variant and dropped to `Unsupported`).
+- **Clear handling (`data/matrix/TimelineRepaginator.kt`):** the SDK can emit `Clear` (and an empty `Reset`) a few seconds after open — an empty list is not final. `TimelineRepaginator` debounces those into a single `paginateBackwards` after the first page has been requested and stops for good once `paginateBackwards` reports the start, so it never loops. JVM-tested with a fake pager.
+- **Presentation (`ui/matrix/TimelinePresentation.kt`):** pure `timelineRows(...)` maps entries to `TimelineRow`s, collapsing consecutive messages from one sender within 5 minutes so the avatar and name show only on the first of a group. Day dividers read "Today"/"Yesterday"/"MMM d"; message times read "HH:mm"; state events become small centred rows; UTDs become a muted "Encrypted message" bubble; read markers and unsupported items are dropped.
+- **Screen (`MatrixRoomViewModel` + `MatrixRoomScreen`):** top bar shows the room name (from `MatrixClientManager.rooms`), a back button and a lock icon when encrypted. A `reverseLayout = true` `LazyColumn` keeps the newest message at the bottom, auto-pages backwards as the user scrolls near the top, shows a loading indicator while paging and "Beginning of conversation" at the start. Own messages go right (`primaryContainer`), others left with the SDK markdown renderer; "(edited)" marks edits; images/files show a "[image] filename" placeholder. States: loading, error with Retry, and "Matrix isn't set up" with a button to Settings → Matrix account. The timeline handle is closed in `onCleared`.
 
 ## Out of scope for Phase 0
 
