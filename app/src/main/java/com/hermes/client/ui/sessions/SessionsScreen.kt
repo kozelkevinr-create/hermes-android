@@ -89,14 +89,15 @@ fun SessionsScreen(
     onSetupMatrix: () -> Unit = {},
     chatsVm: ChatsSourceViewModel = hiltViewModel(),
 ) {
+    // Null until the saved choice has loaded: draw nothing rather than flip between lists.
     val source by chatsVm.source.collectAsStateWithLifecycle()
     val toggle: @Composable () -> Unit = {
-        ChatsSourceToggle(selected = source, onSelect = chatsVm::select)
+        ChatsSourceToggle(selected = source ?: ChatsSource.GATEWAY, onSelect = chatsVm::select)
     }
-    if (source == ChatsSource.MATRIX) {
-        MatrixRoomListScreen(sourceToggle = toggle, onOpenRoom = onOpenMatrixRoom, onSetup = onSetupMatrix)
-    } else {
-        GatewaySessionsScreen(
+    when (source) {
+        null -> Unit
+        ChatsSource.MATRIX -> MatrixRoomListScreen(sourceToggle = toggle, onOpenRoom = onOpenMatrixRoom, onSetup = onSetupMatrix)
+        ChatsSource.GATEWAY -> GatewaySessionsScreen(
             onOpen = onOpen,
             onMenu = onMenu,
             onOpenArchived = onOpenArchived,

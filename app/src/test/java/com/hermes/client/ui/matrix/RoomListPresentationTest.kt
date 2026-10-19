@@ -31,20 +31,16 @@ class RoomListPresentationTest {
     private val now = 1_792_411_200_000L
     private val hour = 3_600_000L
 
-    @Test fun sort_is_newest_activity_first_with_no_activity_last_and_ties_kept_in_order() {
+    @Test fun sdk_order_is_kept_even_when_latest_timestamps_disagree() {
         val rooms = listOf(
             room("a", "A", ts = now - 5 * hour),
             room("b", "B", ts = null),
             room("c", "C", ts = now - hour),
-            room("d", "D", ts = null),
-            room("e", "E", ts = now - 5 * hour),
         )
-        assertEquals(listOf("c", "a", "e", "b", "d"), sortByRecency(rooms).map { it.id })
-    }
-
-    @Test fun sort_does_not_float_unread_rooms() {
-        val rooms = listOf(room("a", "A", ts = now - hour), room("b", "B", ts = now - 2 * hour, unread = 9))
-        assertEquals(listOf("a", "b"), sortByRecency(rooms).map { it.id })
+        val state = roomListUiState(
+            MatrixState.Ready("@me:x", "DEV", "https://x", "@bot:x"), rooms, "",
+        ) as RoomListUiState.Ready
+        assertEquals(listOf("a", "b", "c"), state.rooms.map { it.id })
     }
 
     @Test fun filter_matches_name_and_preview_case_insensitively() {
@@ -92,6 +88,8 @@ class RoomListPresentationTest {
     @Test fun ready_state_sorts_filters_and_reports_whether_any_rooms_exist() {
         val ready = MatrixState.Ready("@me:x", "DEV", "https://x", "@bot:x")
         val rooms = listOf(room("old", "Old", ts = now - 9 * hour), room("new", "New", ts = now - hour))
+        val all = roomListUiState(ready, rooms, "") as RoomListUiState.Ready
+        assertEquals(listOf("old", "new"), all.rooms.map { it.id })
         val state = roomListUiState(ready, rooms, " new ") as RoomListUiState.Ready
         assertEquals(listOf("new"), state.rooms.map { it.id })
         assertEquals("new", state.query)

@@ -35,7 +35,7 @@ class MatrixRoomListViewModelTest {
         assertEquals(RoomListUiState.Loading, vm.uiState.value)
 
         matrix.value = MatrixState.Ready("@a:x", "D", "https://x", "@b:x")
-        rooms.value = listOf(room("old", 1), room("new", 2))
+        rooms.value = listOf(room("new", 2), room("old", 1)) // SDK order is kept as-is
         val ready = vm.uiState.value as RoomListUiState.Ready
         assertEquals(listOf("new", "old"), ready.rooms.map { it.id })
         assertTrue(ready.hasAnyRooms)

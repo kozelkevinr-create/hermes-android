@@ -3,17 +3,22 @@ package com.hermes.client.data.matrix
 /** Shown instead of the body of an event the client could not decrypt. */
 const val ENCRYPTED_PREVIEW = "Encrypted message"
 
-/** Longest preview kept, in characters (the row shows one line; the rest is cut). */
+/** Longest preview kept, in code points (the row shows one line; the rest is cut). */
 const val MAX_PREVIEW_LENGTH = 120
 
+private val WHITESPACE = Regex("[\\s\\p{Z}\\p{Cc}]+")
+
 /**
- * Turns a message body into a single plain-text line: runs of whitespace (including newlines)
- * collapse to one space, the ends are trimmed, and anything past [max] characters is cut with an
- * ellipsis. Pure, so the room list never shows a multi-line or unbounded body.
+ * Turns a message body into a single plain-text line: runs of whitespace, separators and control
+ * characters collapse to one space, the ends are trimmed, and anything past [max] code points is
+ * cut with an ellipsis. Cuts land on code-point boundaries, so an emoji (a surrogate pair) is never
+ * split. The input is the event's plain `body`, which carries no HTML; markdown is left as typed.
  */
 fun previewText(raw: String, max: Int = MAX_PREVIEW_LENGTH): String {
-    val flat = raw.replace(Regex("\\s+"), " ").trim()
-    return if (flat.length <= max) flat else flat.take(max - 1).trimEnd() + "…"
+    val flat = raw.replace(WHITESPACE, " ").trim()
+    if (flat.codePointCount(0, flat.length) <= max) return flat
+    val end = flat.offsetByCodePoints(0, max - 1)
+    return flat.substring(0, end).trimEnd() + "…"
 }
 
 /**

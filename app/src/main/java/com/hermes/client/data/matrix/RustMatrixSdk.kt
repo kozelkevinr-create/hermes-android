@@ -231,7 +231,10 @@ private fun eventActivity(
     return LatestActivity(content.previewOrNull(), senderLabel(sender, displayName, isOwn), ts)
 }
 
-/** Plain-text preview of an event's content, or null for state and membership events. */
+/**
+ * Plain-text preview of an event's content, or null for state and membership events. Uses the
+ * message's plain `body` (no HTML); markdown in it is shown as typed.
+ */
 private fun TimelineItemContent.previewOrNull(): String? {
     val msgLike = this as? TimelineItemContent.MsgLike ?: return null
     return when (val kind = msgLike.content.kind) {
@@ -244,10 +247,34 @@ private fun TimelineItemContent.previewOrNull(): String? {
     }
 }
 
-/** Maps to summaries and releases the `Room` handles the diff carried. */
+/**
+ * Maps to summaries and releases the `Room` handles the diff carried. Every room is destroyed
+ * exactly once, even when mapping is cancelled or fails part-way through a batch.
+ */
 private suspend fun RoomListEntriesUpdate.toSummaryDiff(): ListDiff<MatrixRoomSummary> {
-    suspend fun one(r: Room) = r.toSummary().also { r.destroy() }
-    suspend fun many(rs: List<Room>) = rs.map { one(it) }
+    suspend fun one(r: Room): MatrixRoomSummary = try {
+        r.toSummary()
+    } finally {
+        r.destroy()
+    }
+    suspend fun many(rs: List<Room>): List<MatrixRoomSummary> {
+        val out = ArrayList<MatrixRoomSummary>(rs.size)
+        var handled = 0
+        try {
+            for (r in rs) {
+                try {
+                    out += r.toSummary()
+                } finally {
+                    r.destroy()
+                    handled++
+                }
+            }
+        } finally {
+            // Rooms after the last one handled (cancellation or an error) were never destroyed.
+            rs.drop(handled).forEach { runCatching { it.destroy() } }
+        }
+        return out
+    }
     return when (this) {
         is RoomListEntriesUpdate.Append -> ListDiff.Append(many(values))
         is RoomListEntriesUpdate.Clear -> ListDiff.Clear
