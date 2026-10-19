@@ -65,19 +65,56 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hermes.client.domain.Session
+import com.hermes.client.ui.matrix.ChatsSource
+import com.hermes.client.ui.matrix.ChatsSourceToggle
+import com.hermes.client.ui.matrix.ChatsSourceViewModel
+import com.hermes.client.ui.matrix.MatrixRoomListScreen
 import com.hermes.client.ui.record.RecordPhase
 import com.hermes.client.ui.record.RecordTaskSheet
 import com.hermes.client.ui.record.RecordTaskViewModel
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * The Chats tab: a Matrix | Gateway switch over two lists. The gateway list is the screen below,
+ * unchanged; the Matrix list is [MatrixRoomListScreen]. The gateway ViewModel is only created while
+ * the gateway list is showing.
+ */
 @Composable
 fun SessionsScreen(
+    onOpen: (String) -> Unit,
+    onMenu: () -> Unit = {},
+    onOpenArchived: () -> Unit = {},
+    onUnauthorized: () -> Unit = {},
+    onOpenMatrixRoom: (String) -> Unit = {},
+    onSetupMatrix: () -> Unit = {},
+    chatsVm: ChatsSourceViewModel = hiltViewModel(),
+) {
+    val source by chatsVm.source.collectAsStateWithLifecycle()
+    val toggle: @Composable () -> Unit = {
+        ChatsSourceToggle(selected = source, onSelect = chatsVm::select)
+    }
+    if (source == ChatsSource.MATRIX) {
+        MatrixRoomListScreen(sourceToggle = toggle, onOpenRoom = onOpenMatrixRoom, onSetup = onSetupMatrix)
+    } else {
+        GatewaySessionsScreen(
+            onOpen = onOpen,
+            onMenu = onMenu,
+            onOpenArchived = onOpenArchived,
+            onUnauthorized = onUnauthorized,
+            sourceToggle = toggle,
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun GatewaySessionsScreen(
     vm: SessionsViewModel = hiltViewModel(),
     onOpen: (String) -> Unit,
     onMenu: () -> Unit = {},
     onOpenArchived: () -> Unit = {},
     onUnauthorized: () -> Unit = {},
+    sourceToggle: @Composable () -> Unit = {},
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val activeProfile by vm.activeProfile.collectAsStateWithLifecycle()
@@ -153,6 +190,7 @@ fun SessionsScreen(
                         ) { Text("Archived") }
                     },
                 )
+                sourceToggle()
                 // Same tenant switcher as Agent Activity: a chip row, active one selected. Tapping
                 // switches the active profile and the list re-fetches.
                 // Sessions mode spans all profiles (REST); Projects mode is single-profile (the

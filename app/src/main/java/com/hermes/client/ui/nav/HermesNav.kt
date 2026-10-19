@@ -1,5 +1,6 @@
 package com.hermes.client.ui.nav
 
+import android.net.Uri
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -193,6 +194,15 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
                     onOpen = { id -> nav.navigate("chat/$id") },
                     onOpenArchived = { nav.navigate("archived") },
                     onUnauthorized = onUnauthorized,
+                    // Room ids contain '!' and ':', so they travel URL-encoded as one path segment.
+                    onOpenMatrixRoom = { id -> nav.navigate("matrix_room/${Uri.encode(id)}") },
+                    onSetupMatrix = { nav.navigate("settings_matrix") { launchSingleTop = true } },
+                )
+            }
+            composable("matrix_room/{roomId}") { entry ->
+                com.hermes.client.ui.matrix.MatrixRoomScreen(
+                    roomId = entry.arguments?.getString("roomId") ?: "",
+                    onBack = back,
                 )
             }
             composable("activity") { com.hermes.client.ui.activity.MissionControlScreen(onNavigate = push) }
