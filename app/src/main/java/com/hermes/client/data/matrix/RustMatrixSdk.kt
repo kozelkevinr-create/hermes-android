@@ -213,6 +213,9 @@ private class RustClientHandle(private val client: Client) : MatrixClientHandle 
 /** Number of events the timeline loads on the first page and on every repagination. */
 private const val TIMELINE_PAGE_SIZE = 50
 
+/** Monotonic suffix for items whose SDK `uniqueId` is missing, so row keys never collide. */
+private val FALLBACK_ID_COUNTER = java.util.concurrent.atomic.AtomicLong(0)
+
 private class RustTimelineHandle(
     private val room: Room,
     private val timeline: Timeline,
@@ -278,10 +281,11 @@ private class RustTimelineHandle(
         if (closed) return
         listenerHandle = timeline.addListener(listener)
         paginationHandle = timeline.subscribeToBackPaginationStatus(statusListener)
-        timeline.paginateBackwards(TIMELINE_PAGE_SIZE.toUShort())
+        val hitStart = timeline.paginateBackwards(TIMELINE_PAGE_SIZE.toUShort())
         // Resets only count once the first page has been requested (a Clear during the initial
-        // load must not schedule another page).
-        repaginator.onFirstPageRequested()
+        // load must not schedule another page); seed its result so a start-of-room page also stops
+        // any later Clear from firing a redundant one.
+        repaginator.onFirstPageRequested(hitStart)
     }
 
     override suspend fun paginateBackwards(count: Int): Boolean {
@@ -299,6 +303,8 @@ private class RustTimelineHandle(
         runCatching { listenerHandle?.cancel() }
         runCatching { paginationHandle?.cancel() }
         rawUpdates.close()
+        // Destroy any FFI items still queued in diffs the collector never got to, exactly once.
+        drainQueuedDiffs()
         scope.cancel()
         runCatching { listenerHandle?.destroy() }
         runCatching { paginationHandle?.destroy() }
@@ -306,6 +312,28 @@ private class RustTimelineHandle(
         runCatching { room.destroy() }
         listenerHandle = null
         paginationHandle = null
+    }
+
+    /** Destroys the [TimelineItem]s carried by every diff still buffered in [rawUpdates]. */
+    private fun drainQueuedDiffs() {
+        while (true) {
+            val updates = rawUpdates.tryReceive().getOrNull() ?: break
+            for (d in updates) {
+                when (d) {
+                    is TimelineDiff.Append -> d.values.forEach { runCatching { it.destroy() } }
+                    is TimelineDiff.Clear -> Unit
+                    is TimelineDiff.PushFront -> runCatching { d.value.destroy() }
+                    is TimelineDiff.PushBack -> runCatching { d.value.destroy() }
+                    is TimelineDiff.PopFront -> Unit
+                    is TimelineDiff.PopBack -> Unit
+                    is TimelineDiff.Insert -> runCatching { d.value.destroy() }
+                    is TimelineDiff.Set -> runCatching { d.value.destroy() }
+                    is TimelineDiff.Remove -> Unit
+                    is TimelineDiff.Truncate -> Unit
+                    is TimelineDiff.Reset -> d.values.forEach { runCatching { it.destroy() } }
+                }
+            }
+        }
     }
 }
 
@@ -350,7 +378,8 @@ private suspend fun TimelineDiff.toEntryDiff(): ListDiff<TimelineEntry> {
 }
 
 private fun TimelineItem.toEntry(): TimelineEntry {
-    val id = runCatching { uniqueId().id }.getOrDefault("")
+    val id = runCatching { uniqueId().id }.getOrNull()?.takeIf { it.isNotBlank() }
+        ?: "fallback-${FALLBACK_ID_COUNTER.incrementAndGet()}"
     return try {
         val virtual = asVirtual()
         if (virtual != null) {

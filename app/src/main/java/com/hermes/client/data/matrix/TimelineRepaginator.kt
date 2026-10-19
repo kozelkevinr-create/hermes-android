@@ -20,9 +20,11 @@ class TimelineRepaginator(
     private var atStart = false
     private var pending: Job? = null
 
-    /** Record that the first page request has happened; resets before it are ignored. */
-    fun onFirstPageRequested() {
+    /** Record that the first page request has happened; [atStart] is its result (true = hit the
+     *  start of the room, so later resets must not schedule a redundant page). */
+    fun onFirstPageRequested(atStart: Boolean = false) {
         loaded = true
+        this.atStart = atStart
     }
 
     /** Feed one diff batch; [wasReset] is true when it contains `Clear` or an empty `Reset`. */

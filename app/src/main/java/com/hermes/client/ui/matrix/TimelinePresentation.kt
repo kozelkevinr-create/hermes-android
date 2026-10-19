@@ -14,7 +14,7 @@ const val GROUP_WINDOW_MS = 5 * 60_000L
 
 /** One rendered row of the timeline, ready for the LazyColumn. */
 sealed interface TimelineRow {
-    data class DayDivider(val label: String) : TimelineRow
+    data class DayDivider(val label: String, val ts: Long) : TimelineRow
 
     /** A small centred membership / name / topic change. */
     data class State(val id: String, val text: String) : TimelineRow
@@ -51,7 +51,7 @@ fun timelineRows(
     for (e in entries) {
         when (e) {
             is TimelineEntry.DayDivider -> {
-                rows += TimelineRow.DayDivider(formatDayLabel(e.ts, nowMs, zone, locale))
+                rows += TimelineRow.DayDivider(formatDayLabel(e.ts, nowMs, zone, locale), e.ts)
                 lastSender = null
                 lastTs = null
             }
@@ -136,6 +136,50 @@ private fun messageRow(
 
 private fun isSameGroup(sender: String, ts: Long, lastSender: String?, lastTs: Long?): Boolean =
     lastSender == sender && lastTs != null && ts >= lastTs && ts - lastTs <= GROUP_WINDOW_MS
+
+/** Stable LazyColumn key for a row. Day dividers key by timestamp so two dividers with the same
+ *  label ("Oct 3" in two different years) stay distinct; events key by their SDK id. */
+fun timelineRowKey(row: TimelineRow): String = when (row) {
+    is TimelineRow.DayDivider -> "day:${row.ts}"
+    is TimelineRow.State -> "state:${row.id}"
+    is TimelineRow.Message -> row.id
+}
+
+/**
+ * Decides when the timeline screen should request more history. Two triggers:
+ *  - the user actually scrolled toward the top (a real gesture, latched once seen), or
+ *  - an initial fill that pages at most [maxInitialPages] times so a short room still fills the
+ *    screen, never looping unbounded when the list stays non-scrollable (e.g. every item Unsupported).
+ * Never returns true once [atStart] is set.
+ */
+class TimelinePagination(private val maxInitialPages: Int = DEFAULT_MAX_INITIAL_PAGES) {
+    private var initialPagesRemaining = maxInitialPages
+    private var userScrolled = false
+
+    fun shouldLoadMore(
+        total: Int,
+        lastVisibleIndex: Int?,
+        isScrollInProgress: Boolean,
+        atStart: Boolean,
+    ): Boolean {
+        if (atStart || total <= 0) return false
+        if (isScrollInProgress) userScrolled = true
+        val nearTop = lastVisibleIndex != null && lastVisibleIndex >= total - DEFAULT_THRESHOLD
+        if (!nearTop) return false
+        return if (userScrolled) true else consumeInitialPage()
+    }
+
+    private fun consumeInitialPage(): Boolean {
+        if (initialPagesRemaining <= 0) return false
+        initialPagesRemaining--
+        return true
+    }
+
+    companion object {
+        const val DEFAULT_THRESHOLD = 5
+        const val DEFAULT_MAX_INITIAL_PAGES = 3
+    }
+}
 
 /** "14:05" for a message timestamp. */
 fun formatTimelineTime(epochMs: Long, zone: ZoneId = ZoneId.systemDefault(), locale: Locale = Locale.getDefault()): String =

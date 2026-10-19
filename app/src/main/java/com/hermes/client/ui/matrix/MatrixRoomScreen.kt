@@ -33,6 +33,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,7 +57,6 @@ import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
 
 private val AvatarSize = 26.dp
-private const val LOAD_MORE_THRESHOLD = 5
 
 /** Other-side bubble: the mirror of [UserBubbleShape] so the sharp corner points at the sender. */
 private val OtherBubbleShape = CutCornerShape(topStart = 0.dp, topEnd = 12.dp, bottomEnd = 12.dp, bottomStart = 0.dp)
@@ -116,16 +117,25 @@ fun MatrixRoomScreen(roomId: String, onBack: () -> Unit, onSetup: () -> Unit, vm
 private fun TimelineContent(state: RoomTimelineState.Ready, onLoadMore: () -> Unit) {
     val listState = rememberLazyListState()
     val rows = state.rows
+    val pagination = remember { TimelinePagination() }
+    val atStart = rememberUpdatedState(state.isAtStart)
 
     // With reverseLayout the oldest messages sit at the top, so "near the top" means the highest
-    // visible index approaching the last item. Page more as the user approaches it.
+    // visible index approaching the last item. Only page after a real scroll gesture, or a bounded
+    // initial fill (TimelinePagination caps it), so layout alone can never page through the history.
     LaunchedEffect(listState) {
         snapshotFlow {
             val info = listState.layoutInfo
-            val last = info.visibleItemsInfo.lastOrNull()?.index
-            last to info.totalItemsCount
-        }.collect { (last, total) ->
-            if (total > 0 && last != null && last >= total - LOAD_MORE_THRESHOLD) onLoadMore()
+            PaginationSignal(
+                total = info.totalItemsCount,
+                lastVisibleIndex = info.visibleItemsInfo.lastOrNull()?.index,
+                isScrollInProgress = listState.isScrollInProgress,
+                atStart = atStart.value,
+            )
+        }.collect { signal ->
+            if (pagination.shouldLoadMore(signal.total, signal.lastVisibleIndex, signal.isScrollInProgress, signal.atStart)) {
+                onLoadMore()
+            }
         }
     }
 
@@ -135,7 +145,7 @@ private fun TimelineContent(state: RoomTimelineState.Ready, onLoadMore: () -> Un
         reverseLayout = true,
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        items(rows.asReversed(), key = { rowKey(it) }) { row ->
+        items(rows.asReversed(), key = { timelineRowKey(it) }) { row ->
             when (row) {
                 is TimelineRow.DayDivider -> CentredLabel(row.label)
                 is TimelineRow.State -> CentredLabel(row.text)
@@ -281,8 +291,9 @@ private fun DisabledSendBar() {
     }
 }
 
-private fun rowKey(row: TimelineRow): String = when (row) {
-    is TimelineRow.DayDivider -> "day:${row.label}"
-    is TimelineRow.State -> "state:${row.id}"
-    is TimelineRow.Message -> row.id
-}
+private data class PaginationSignal(
+    val total: Int,
+    val lastVisibleIndex: Int?,
+    val isScrollInProgress: Boolean,
+    val atStart: Boolean,
+)

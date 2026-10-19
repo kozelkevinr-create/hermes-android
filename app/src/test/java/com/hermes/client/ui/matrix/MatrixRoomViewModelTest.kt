@@ -161,4 +161,23 @@ class MatrixRoomViewModelTest {
         assertTrue(timeline.closed)
         assertEquals(RoomTimelineState.SignedOut, vm.state.value)
     }
+
+    @Test
+    fun reopening_ready_closes_the_previous_handle() = runTest {
+        rooms.value = listOf(readySummary())
+        val first = FakeTimeline()
+        nextTimeline = first
+        matrix.value = MatrixState.Ready("@a:example.test", "D", "https://hs", "@bot:example.test")
+        val vm = vm()
+        assertTrue(vm.state.value is RoomTimelineState.Ready)
+        assertFalse(first.closed)
+
+        val second = FakeTimeline()
+        nextTimeline = second
+        // A distinct Ready re-emits and re-opens the timeline.
+        matrix.value = MatrixState.Ready("@a:example.test", "D", "https://hs", "@other:example.test")
+        assertTrue(first.closed)
+        assertFalse(second.closed)
+        assertEquals(listOf(roomId, roomId), opened)
+    }
 }

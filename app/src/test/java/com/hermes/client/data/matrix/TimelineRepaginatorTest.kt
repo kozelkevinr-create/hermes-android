@@ -67,4 +67,14 @@ class TimelineRepaginatorTest {
         advanceUntilIdle()
         assertEquals(1, pages)
     }
+
+    @Test
+    fun first_page_that_hits_start_suppresses_later_resets() = runTest {
+        var pages = 0
+        val rep = TimelineRepaginator(this, debounceMs = 100) { pages++; true }
+        rep.onFirstPageRequested(atStart = true)
+        rep.onBatch(true)
+        advanceUntilIdle()
+        assertEquals(0, pages)
+    }
 }

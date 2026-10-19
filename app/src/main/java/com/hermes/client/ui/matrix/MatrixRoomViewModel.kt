@@ -85,7 +85,7 @@ class MatrixRoomViewModel internal constructor(
     }
 
     private fun open() {
-        collectJob?.cancel()
+        closeTimeline()
         _state.value = RoomTimelineState.Opening
         collectJob = viewModelScope.launch {
             val handle = try {
