@@ -76,10 +76,17 @@ val NAV_ROUTES: List<String> = listOf(
     NavRoutes.AGENTS_TOOLS,
 )
 
-/** True when [pattern] (a NavHost route pattern) matches the concrete [route]. */
+/**
+ * True when [pattern] (a NavHost route pattern) matches the concrete [route].
+ *
+ * Contract:
+ * - A `{arg}` segment is a single-segment wildcard: it matches exactly one path segment
+ *   (`chat/{id}` matches `chat/abc`, but not `chat` or `chat/a/b`).
+ * - Any `?query` suffix on [route] is ignored, so `chat/abc?x=1` matches `chat/{id}`.
+ */
 fun navPatternMatches(pattern: String, route: String): Boolean {
     val segments = pattern.split('/')
-    val actual = route.split('/')
+    val actual = route.substringBefore('?').split('/')
     if (segments.size != actual.size) return false
     return segments.indices.all { i ->
         val segment = segments[i]
