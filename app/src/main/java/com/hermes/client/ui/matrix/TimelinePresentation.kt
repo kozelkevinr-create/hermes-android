@@ -1,6 +1,7 @@
 package com.hermes.client.ui.matrix
 
 import com.hermes.client.data.matrix.ENCRYPTED_PREVIEW
+import com.hermes.client.data.matrix.EventOrTxnId
 import com.hermes.client.data.matrix.MessageKind
 import com.hermes.client.data.matrix.MessageSendState
 import com.hermes.client.data.matrix.TimelineEntry
@@ -34,6 +35,8 @@ sealed interface TimelineRow {
         val isUtd: Boolean,
         /** Delivery state for own messages; [MessageSendState.SENT] for everyone else's. */
         val sendState: MessageSendState,
+        /** SDK identity used to retry or abort this event's local echo, when known. */
+        val itemId: EventOrTxnId? = null,
     ) : TimelineRow
 }
 
@@ -83,9 +86,10 @@ fun timelineRows(
                     kind = e.kind,
                     isUtd = false,
                     sendState = e.sendState,
+                    itemId = e.itemId,
                     grouped = isSameGroup(e.sender, e.ts, lastSender, lastTs),
-                    zone,
-                    locale,
+                    zone = zone,
+                    locale = locale,
                 )
                 lastSender = e.sender
                 lastTs = e.ts
@@ -103,8 +107,8 @@ fun timelineRows(
                     isUtd = true,
                     sendState = MessageSendState.SENT,
                     grouped = isSameGroup(e.sender, e.ts, lastSender, lastTs),
-                    zone,
-                    locale,
+                    zone = zone,
+                    locale = locale,
                 )
                 lastSender = e.sender
                 lastTs = e.ts
@@ -125,6 +129,7 @@ private fun messageRow(
     kind: MessageKind,
     isUtd: Boolean,
     sendState: MessageSendState,
+    itemId: EventOrTxnId? = null,
     grouped: Boolean,
     zone: ZoneId,
     locale: Locale,
@@ -139,6 +144,7 @@ private fun messageRow(
     showSender = !grouped,
     isUtd = isUtd,
     sendState = sendState,
+    itemId = itemId,
 )
 
 private fun isSameGroup(sender: String, ts: Long, lastSender: String?, lastTs: Long?): Boolean =

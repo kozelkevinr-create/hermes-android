@@ -1,5 +1,6 @@
 package com.hermes.client.ui.matrix
 
+import com.hermes.client.data.matrix.EventOrTxnId
 import com.hermes.client.data.matrix.MessageKind
 import com.hermes.client.data.matrix.MessageSendState
 import com.hermes.client.data.matrix.TimelineEntry
@@ -89,6 +90,15 @@ class TimelinePresentationTest {
             ),
             rows.map { it.sendState },
         )
+    }
+
+    @Test
+    fun item_id_reaches_the_row_for_in_place_retry() {
+        val itemId = EventOrTxnId.Transaction("txn-1")
+        val rows = messages(
+            listOf(msg("1", "@me:example.test", nowMs, isOwn = true, sendState = MessageSendState.SENDING_FAILED).copy(itemId = itemId)),
+        )
+        assertEquals(itemId, rows.single().itemId)
     }
 
     @Test

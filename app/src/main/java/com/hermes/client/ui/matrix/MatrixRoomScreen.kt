@@ -49,7 +49,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -60,6 +59,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.hermes.client.data.matrix.EventOrTxnId
 import com.hermes.client.data.matrix.MessageKind
 import com.hermes.client.data.matrix.MessageSendState
 import com.hermes.client.data.matrix.avatarLetterFor
@@ -86,6 +86,7 @@ fun MatrixRoomScreen(roomId: String, onBack: () -> Unit, onSetup: () -> Unit, vm
     val state by vm.state.collectAsStateWithLifecycle()
     val sending by vm.sending.collectAsStateWithLifecycle()
     val sendFailed by vm.sendFailed.collectAsStateWithLifecycle()
+    val draft by vm.draft.collectAsStateWithLifecycle()
     val name = room?.name ?: roomId
     Scaffold(
         topBar = {
@@ -110,7 +111,13 @@ fun MatrixRoomScreen(roomId: String, onBack: () -> Unit, onSetup: () -> Unit, vm
         },
         bottomBar = {
             if (state is RoomTimelineState.Ready) {
-                MessageComposer(sending = sending, sendFailed = sendFailed, onSend = vm::send)
+                MessageComposer(
+                    sending = sending,
+                    sendFailed = sendFailed,
+                    draft = draft,
+                    onDraftChange = vm::updateDraft,
+                    onSend = vm::send,
+                )
             }
         },
     ) { padding ->
@@ -127,7 +134,12 @@ fun MatrixRoomScreen(roomId: String, onBack: () -> Unit, onSetup: () -> Unit, vm
                     message = s.message,
                     onRetry = { vm.retry() },
                 )
-                is RoomTimelineState.Ready -> TimelineContent(s, vm::loadMore, onRetrySend = vm::send)
+                is RoomTimelineState.Ready -> TimelineContent(
+                    s,
+                    vm::loadMore,
+                    onRetrySend = vm::retrySend,
+                    onAbortSend = vm::abortSend,
+                )
             }
         }
     }
@@ -137,7 +149,8 @@ fun MatrixRoomScreen(roomId: String, onBack: () -> Unit, onSetup: () -> Unit, vm
 private fun TimelineContent(
     state: RoomTimelineState.Ready,
     onLoadMore: () -> Unit,
-    onRetrySend: (String) -> Unit,
+    onRetrySend: (EventOrTxnId) -> Unit,
+    onAbortSend: (EventOrTxnId) -> Unit,
 ) {
     val listState = rememberLazyListState()
     val rows = state.rows
@@ -173,7 +186,7 @@ private fun TimelineContent(
             when (row) {
                 is TimelineRow.DayDivider -> CentredLabel(row.label)
                 is TimelineRow.State -> CentredLabel(row.text)
-                is TimelineRow.Message -> MessageRow(row, onRetrySend)
+                is TimelineRow.Message -> MessageRow(row, onRetrySend, onAbortSend)
             }
         }
         // The footer is the last item, so with reverseLayout it sits at the very top (oldest edge).
@@ -207,12 +220,18 @@ private fun CentredLabel(text: String) {
 }
 
 @Composable
-private fun MessageRow(row: TimelineRow.Message, onRetrySend: (String) -> Unit) {
+private fun MessageRow(
+    row: TimelineRow.Message,
+    onRetrySend: (EventOrTxnId) -> Unit,
+    onAbortSend: (EventOrTxnId) -> Unit,
+) {
     when {
-        row.isUtd -> Bubble(row, onRetrySend, content = { MutedText("Encrypted message") })
-        row.kind == MessageKind.IMAGE -> Bubble(row, onRetrySend, content = { MutedText(attachmentLabel("image", row.body)) })
-        row.kind == MessageKind.FILE -> Bubble(row, onRetrySend, content = { MutedText(attachmentLabel("file", row.body)) })
-        else -> Bubble(row, onRetrySend, content = { BodyText(row) })
+        row.isUtd -> Bubble(row, onRetrySend, onAbortSend, content = { MutedText("Encrypted message") })
+        row.kind == MessageKind.IMAGE ->
+            Bubble(row, onRetrySend, onAbortSend, content = { MutedText(attachmentLabel("image", row.body)) })
+        row.kind == MessageKind.FILE ->
+            Bubble(row, onRetrySend, onAbortSend, content = { MutedText(attachmentLabel("file", row.body)) })
+        else -> Bubble(row, onRetrySend, onAbortSend, content = { BodyText(row) })
     }
 }
 
@@ -233,7 +252,12 @@ private fun MutedText(text: String) {
 }
 
 @Composable
-private fun Bubble(row: TimelineRow.Message, onRetrySend: (String) -> Unit, content: @Composable () -> Unit) {
+private fun Bubble(
+    row: TimelineRow.Message,
+    onRetrySend: (EventOrTxnId) -> Unit,
+    onAbortSend: (EventOrTxnId) -> Unit,
+    content: @Composable () -> Unit,
+) {
     val isOwn = row.isOwn
     val bubbleBg = if (isOwn) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
     val shape = if (isOwn) UserBubbleShape else OtherBubbleShape
@@ -280,7 +304,7 @@ private fun Bubble(row: TimelineRow.Message, onRetrySend: (String) -> Unit, cont
                             )
                         }
                         if (row.isOwn) {
-                            SendStatus(row, onRetrySend)
+                            SendStatus(row, onRetrySend, onAbortSend)
                         }
                     }
                 }
@@ -304,9 +328,13 @@ private fun AvatarCircle(name: String) {
 private fun attachmentLabel(prefix: String, filename: String): String =
     if (filename.isBlank()) "[$prefix]" else "[$prefix] $filename"
 
-/** Clock while the send is in flight, a tappable "Not sent" that offers a retry when it failed. */
+/** Clock while the send is in flight; a tappable "Not sent" offering retry/delete when it failed. */
 @Composable
-private fun SendStatus(row: TimelineRow.Message, onRetrySend: (String) -> Unit) {
+private fun SendStatus(
+    row: TimelineRow.Message,
+    onRetrySend: (EventOrTxnId) -> Unit,
+    onAbortSend: (EventOrTxnId) -> Unit,
+) {
     when (row.sendState) {
         MessageSendState.NOT_SENT_YET -> Icon(
             Icons.Rounded.Schedule,
@@ -315,22 +343,34 @@ private fun SendStatus(row: TimelineRow.Message, onRetrySend: (String) -> Unit) 
             modifier = Modifier.padding(start = 4.dp).size(12.dp),
         )
         MessageSendState.SENDING_FAILED -> {
+            val itemId = row.itemId
             var menu by remember { mutableStateOf(false) }
             Box {
                 Text(
                     "Not sent",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.clickable { menu = true }.padding(start = 6.dp),
+                    modifier = Modifier
+                        .then(if (itemId != null) Modifier.clickable { menu = true } else Modifier)
+                        .padding(start = 6.dp),
                 )
-                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    DropdownMenuItem(
-                        text = { Text("Retry") },
-                        onClick = {
-                            menu = false
-                            onRetrySend(row.body)
-                        },
-                    )
+                if (itemId != null) {
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Retry") },
+                            onClick = {
+                                menu = false
+                                onRetrySend(itemId)
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Delete") },
+                            onClick = {
+                                menu = false
+                                onAbortSend(itemId)
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -340,15 +380,18 @@ private fun SendStatus(row: TimelineRow.Message, onRetrySend: (String) -> Unit) 
 
 /** Text composer above the IME / navigation bar. Slash commands are sent as-is for Hermes to parse. */
 @Composable
-private fun MessageComposer(sending: Boolean, sendFailed: Boolean, onSend: (String) -> Unit) {
-    var draft by rememberSaveable { mutableStateOf("") }
+private fun MessageComposer(
+    sending: Boolean,
+    sendFailed: Boolean,
+    draft: String,
+    onDraftChange: (String) -> Unit,
+    onSend: () -> Unit,
+) {
     val canSend = draft.isNotBlank() && !sending
 
     fun submit() {
         if (!canSend) return
-        val body = draft
-        draft = ""
-        onSend(body)
+        onSend()
     }
 
     Surface(color = MaterialTheme.colorScheme.surface) {
@@ -371,7 +414,7 @@ private fun MessageComposer(sending: Boolean, sendFailed: Boolean, onSend: (Stri
             ) {
                 OutlinedTextField(
                     value = draft,
-                    onValueChange = { draft = it },
+                    onValueChange = onDraftChange,
                     modifier = Modifier.weight(1f),
                     placeholder = { Text("Message…") },
                     maxLines = 5,

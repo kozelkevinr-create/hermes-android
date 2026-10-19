@@ -22,6 +22,7 @@ import org.matrix.rustcomponents.sdk.Client
 import org.matrix.rustcomponents.sdk.ClientBuilder
 import org.matrix.rustcomponents.sdk.ClientSessionDelegate
 import org.matrix.rustcomponents.sdk.Disposable
+import org.matrix.rustcomponents.sdk.EventOrTransactionId
 import org.matrix.rustcomponents.sdk.EventSendState
 import org.matrix.rustcomponents.sdk.EventTimelineItem
 import org.matrix.rustcomponents.sdk.LatestEventValue
@@ -41,6 +42,7 @@ import org.matrix.rustcomponents.sdk.RoomListEntriesListener
 import org.matrix.rustcomponents.sdk.RoomListEntriesUpdate
 import org.matrix.rustcomponents.sdk.RoomListEntriesWithDynamicAdaptersResult
 import org.matrix.rustcomponents.sdk.RoomListService
+import org.matrix.rustcomponents.sdk.SendTarget
 import org.matrix.rustcomponents.sdk.Session
 import org.matrix.rustcomponents.sdk.SlidingSyncVersion
 import org.matrix.rustcomponents.sdk.SlidingSyncVersionBuilder
@@ -359,6 +361,30 @@ private class RustTimelineHandle(
         }
     }
 
+    override suspend fun retrySend(itemId: EventOrTxnId): Boolean = ffi.use(false) {
+        try {
+            // The id is a plain FFI value type, so there is no native object to destroy.
+            timeline.retrySend(itemId.toSdk(), SendTarget.Event)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Never log the event contents: retry only names the SDK failure class.
+            DebugLog.log("matrix-timeline", "retry send failed: ${e.javaClass.simpleName}")
+            false
+        }
+    }
+
+    override suspend fun abortSend(itemId: EventOrTxnId): Boolean = ffi.use(false) {
+        try {
+            timeline.abortSend(itemId.toSdk(), SendTarget.Event)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            DebugLog.log("matrix-timeline", "abort send failed: ${e.javaClass.simpleName}")
+            false
+        }
+    }
+
     /** Runs [action] once teardown has fully finished (immediately if it already has). */
     fun onClosed(action: () -> Unit) {
         tornDown.invokeOnCompletion { action() }
@@ -464,7 +490,7 @@ private fun TimelineItem.toEntry(): TimelineEntry {
                 TimelineEntry.Unsupported(id)
             } else {
                 try {
-                    event.toEventEntry(id)
+                    event.toEventEntry(id, event.eventOrTransactionId.toItemId())
                 } finally {
                     event.destroy()
                 }
@@ -479,7 +505,7 @@ private fun TimelineItem.toEntry(): TimelineEntry {
     }
 }
 
-private fun EventTimelineItem.toEventEntry(id: String): TimelineEntry {
+private fun EventTimelineItem.toEventEntry(id: String, itemId: EventOrTxnId): TimelineEntry {
     val disposables = ArrayList<Disposable>()
     try {
         val sender = sender
@@ -493,7 +519,7 @@ private fun EventTimelineItem.toEventEntry(id: String): TimelineEntry {
             is TimelineItemContent.MsgLike -> {
                 val msgLike = content.content
                 disposables += msgLike
-                msgLike.toEntry(disposables, id, sender, senderName, isOwn, ts, sendState)
+                msgLike.toEntry(disposables, id, itemId, sender, senderName, isOwn, ts, sendState)
             }
             is TimelineItemContent.RoomMembership -> TimelineEntry.StateEvent(id, ts, content.membershipSummary())
             is TimelineItemContent.ProfileChange -> TimelineEntry.StateEvent(id, ts, content.profileSummary())
@@ -508,6 +534,7 @@ private fun EventTimelineItem.toEventEntry(id: String): TimelineEntry {
 private fun MsgLikeContent.toEntry(
     disposables: MutableList<Disposable>,
     id: String,
+    itemId: EventOrTxnId,
     sender: String,
     senderName: String,
     isOwn: Boolean,
@@ -520,23 +547,24 @@ private fun MsgLikeContent.toEntry(
         is MsgLikeKind.Message -> {
             val mc = kind.content
             disposables += mc
-            mc.toMessageEntry(disposables, id, sender, senderName, isOwn, ts, sendState)
+            mc.toMessageEntry(disposables, id, itemId, sender, senderName, isOwn, ts, sendState)
         }
         is MsgLikeKind.UnableToDecrypt -> TimelineEntry.Utd(id, sender, ts)
         is MsgLikeKind.Redacted ->
-            TimelineEntry.Message(id, sender, senderName, isOwn, ts, "", isEdited = false, MessageKind.OTHER, sendState)
+            TimelineEntry.Message(id, sender, senderName, isOwn, ts, "", isEdited = false, MessageKind.OTHER, sendState, itemId)
         is MsgLikeKind.Poll ->
-            TimelineEntry.Message(id, sender, senderName, isOwn, ts, kind.question, isEdited = false, MessageKind.OTHER, sendState)
+            TimelineEntry.Message(id, sender, senderName, isOwn, ts, kind.question, isEdited = false, MessageKind.OTHER, sendState, itemId)
         is MsgLikeKind.Sticker ->
-            TimelineEntry.Message(id, sender, senderName, isOwn, ts, kind.body, isEdited = false, MessageKind.IMAGE, sendState)
+            TimelineEntry.Message(id, sender, senderName, isOwn, ts, kind.body, isEdited = false, MessageKind.IMAGE, sendState, itemId)
         else ->
-            TimelineEntry.Message(id, sender, senderName, isOwn, ts, "", isEdited = false, MessageKind.OTHER, sendState)
+            TimelineEntry.Message(id, sender, senderName, isOwn, ts, "", isEdited = false, MessageKind.OTHER, sendState, itemId)
     }
 }
 
 private fun MessageContent.toMessageEntry(
     disposables: MutableList<Disposable>,
     id: String,
+    itemId: EventOrTxnId,
     sender: String,
     senderName: String,
     isOwn: Boolean,
@@ -562,7 +590,7 @@ private fun MessageContent.toMessageEntry(
         }
         else -> MessageKind.OTHER to body
     }
-    return TimelineEntry.Message(id, sender, senderName, isOwn, ts, effectiveBody, isEdited, kind, sendState)
+    return TimelineEntry.Message(id, sender, senderName, isOwn, ts, effectiveBody, isEdited, kind, sendState, itemId)
 }
 
 /** The filename of an attachment, falling back to the message body when the filename is absent. */
@@ -582,6 +610,16 @@ private fun EventSendState?.toSendState(): MessageSendState = when (this) {
     is EventSendState.NotSentYet -> MessageSendState.NOT_SENT_YET
     is EventSendState.SendingFailed -> MessageSendState.SENDING_FAILED
     else -> MessageSendState.SENT
+}
+
+private fun EventOrTransactionId.toItemId(): EventOrTxnId = when (this) {
+    is EventOrTransactionId.EventId -> EventOrTxnId.Event(eventId)
+    is EventOrTransactionId.TransactionId -> EventOrTxnId.Transaction(transactionId)
+}
+
+private fun EventOrTxnId.toSdk(): EventOrTransactionId = when (this) {
+    is EventOrTxnId.Event -> EventOrTransactionId.EventId(eventId)
+    is EventOrTxnId.Transaction -> EventOrTransactionId.TransactionId(transactionId)
 }
 
 private fun TimelineItemContent.RoomMembership.membershipSummary(): String {

@@ -3,6 +3,7 @@ package com.hermes.client.ui.matrix
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.hermes.client.data.matrix.EventOrTxnId
 import com.hermes.client.data.matrix.MatrixClientManager
 import com.hermes.client.data.matrix.MatrixRoomSummary
 import com.hermes.client.data.matrix.MatrixState
@@ -71,6 +72,14 @@ class MatrixRoomViewModel internal constructor(
 
     /** True when the last send attempt failed; cleared when the next one starts. */
     val sendFailed: StateFlow<Boolean> = _sendFailed.asStateFlow()
+
+    private val _draft = MutableStateFlow("")
+
+    /**
+     * The composer text. It lives here (not in the composable) so a failed send can keep it and an
+     * ignored send never clears it.
+     */
+    val draft: StateFlow<String> = _draft.asStateFlow()
 
     private var timeline: MatrixTimelineHandle? = null
     private var collectJob: Job? = null
@@ -141,9 +150,19 @@ class MatrixRoomViewModel internal constructor(
         }
     }
 
-    /** Sends [text] (trimmed) as a text message; blank input and overlapping sends are ignored. */
-    fun send(text: String) {
-        val body = text.trim()
+    /** Replaces the composer text. */
+    fun updateDraft(text: String) {
+        _draft.value = text
+    }
+
+    /**
+     * Sends the current draft (trimmed) as a text message. Blank input and a send that is already
+     * in flight are ignored, leaving the draft untouched. The draft is cleared only after the send
+     * is accepted by the timeline; on failure it stays so the user can try again.
+     */
+    fun send() {
+        val raw = _draft.value
+        val body = raw.trim()
         if (body.isEmpty()) return
         if (!_sending.compareAndSet(false, true)) return
         _sendFailed.value = false
@@ -151,13 +170,46 @@ class MatrixRoomViewModel internal constructor(
             try {
                 val handle = timeline
                 val sent = handle != null && handle.sendText(body)
-                if (!sent) _sendFailed.value = true
+                if (sent) {
+                    // Keep anything typed after submit, but clear exactly the text we sent.
+                    _draft.compareAndSet(raw, "")
+                } else {
+                    _sendFailed.value = true
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
                 _sendFailed.value = true
             } finally {
                 _sending.value = false
+            }
+        }
+    }
+
+    /** Retries the original failed event in place; never sends a new copy of the body. */
+    fun retrySend(itemId: EventOrTxnId) {
+        viewModelScope.launch {
+            val handle = timeline ?: return@launch
+            try {
+                handle.retrySend(itemId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // The handle reports failure by returning false; nothing else to surface here.
+            }
+        }
+    }
+
+    /** Discards the failed local echo without sending anything. */
+    fun abortSend(itemId: EventOrTxnId) {
+        viewModelScope.launch {
+            val handle = timeline ?: return@launch
+            try {
+                handle.abortSend(itemId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Nothing sensible to surface; the echo stays visible if the abort failed.
             }
         }
     }

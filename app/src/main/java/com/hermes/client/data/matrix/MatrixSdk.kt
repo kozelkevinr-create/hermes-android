@@ -62,6 +62,12 @@ interface MatrixTimelineHandle {
     /** Sends [body] as a markdown text message; false when it could not be sent. Never throws. */
     suspend fun sendText(body: String): Boolean
 
+    /** Retries the same failed local echo in place; false when it could not be retried. Never throws. */
+    suspend fun retrySend(itemId: EventOrTxnId): Boolean
+
+    /** Discards the local echo for [itemId]; false when there is nothing left to abort. Never throws. */
+    suspend fun abortSend(itemId: EventOrTxnId): Boolean
+
     val paginationState: StateFlow<PaginationState>
 
     /** Cancels subscriptions and destroys every SDK object this handle holds. Idempotent. */

@@ -1,5 +1,6 @@
 package com.hermes.client.ui.matrix
 
+import com.hermes.client.data.matrix.EventOrTxnId
 import com.hermes.client.data.matrix.MatrixRoomSummary
 import com.hermes.client.data.matrix.MatrixState
 import com.hermes.client.data.matrix.MatrixTimelineHandle
@@ -40,10 +41,25 @@ private class FakeTimeline : MatrixTimelineHandle {
     var sendResult = true
     var sendGate: CompletableDeferred<Unit>? = null
 
+    val retried = mutableListOf<EventOrTxnId>()
+    var retryResult = true
+    val aborted = mutableListOf<EventOrTxnId>()
+    var abortResult = true
+
     override suspend fun sendText(body: String): Boolean {
         sent += body
         sendGate?.await()
         return sendResult
+    }
+
+    override suspend fun retrySend(itemId: EventOrTxnId): Boolean {
+        retried += itemId
+        return retryResult
+    }
+
+    override suspend fun abortSend(itemId: EventOrTxnId): Boolean {
+        aborted += itemId
+        return abortResult
     }
 
     override suspend fun paginateBackwards(count: Int): Boolean {
@@ -85,6 +101,14 @@ class MatrixRoomViewModelTest {
     }
 
     private fun readySummary() = MatrixRoomSummary(roomId, "Room", isEncrypted = true, unread = 0, isDirect = true)
+
+    private fun readyRoom(): FakeTimeline {
+        rooms.value = listOf(readySummary())
+        val timeline = FakeTimeline()
+        nextTimeline = timeline
+        matrix.value = MatrixState.Ready("@a:example.test", "D", "https://hs", "@bot:example.test")
+        return timeline
+    }
 
     @Test
     fun signed_out_when_matrix_is_logged_out() = runTest {
@@ -169,7 +193,8 @@ class MatrixRoomViewModelTest {
         matrix.value = MatrixState.Ready("@a:example.test", "D", "https://hs", "@bot:example.test")
         val vm = vm()
 
-        vm.send("  hello there  ")
+        vm.updateDraft("  hello there  ")
+        vm.send()
         advanceUntilIdle()
 
         assertEquals(listOf("hello there"), timeline.sent)
@@ -186,7 +211,8 @@ class MatrixRoomViewModelTest {
         matrix.value = MatrixState.Ready("@a:example.test", "D", "https://hs", "@bot:example.test")
         val vm = vm()
 
-        vm.send("hello")
+        vm.updateDraft("hello")
+        vm.send()
         advanceUntilIdle()
 
         assertEquals(listOf("hello"), timeline.sent)
@@ -202,10 +228,12 @@ class MatrixRoomViewModelTest {
         matrix.value = MatrixState.Ready("@a:example.test", "D", "https://hs", "@bot:example.test")
         val vm = vm()
 
-        vm.send("   \n\t ")
+        vm.updateDraft("   \n\t ")
+        vm.send()
         advanceUntilIdle()
 
         assertTrue(timeline.sent.isEmpty())
+        assertEquals("   \n\t ", vm.draft.value)
         assertFalse(vm.sending.value)
         assertFalse(vm.sendFailed.value)
     }
@@ -220,11 +248,12 @@ class MatrixRoomViewModelTest {
         matrix.value = MatrixState.Ready("@a:example.test", "D", "https://hs", "@bot:example.test")
         val vm = vm()
 
-        vm.send("first")
+        vm.updateDraft("first")
+        vm.send()
         runCurrent()
         assertTrue(vm.sending.value)
 
-        vm.send("second")
+        vm.send()
         runCurrent()
         assertEquals(listOf("first"), timeline.sent)
 
@@ -232,6 +261,81 @@ class MatrixRoomViewModelTest {
         advanceUntilIdle()
         assertEquals(listOf("first"), timeline.sent)
         assertFalse(vm.sending.value)
+    }
+
+    @Test
+    fun send_success_clears_the_draft() = runTest {
+        readyRoom()
+        val vm = vm()
+
+        vm.updateDraft("hello there")
+        vm.send()
+        advanceUntilIdle()
+
+        assertEquals("", vm.draft.value)
+        assertFalse(vm.sendFailed.value)
+    }
+
+    @Test
+    fun send_failure_keeps_the_draft() = runTest {
+        val timeline = readyRoom()
+        timeline.sendResult = false
+        val vm = vm()
+
+        vm.updateDraft("hello there")
+        vm.send()
+        advanceUntilIdle()
+
+        assertEquals("hello there", vm.draft.value)
+        assertTrue(vm.sendFailed.value)
+    }
+
+    @Test
+    fun overlapping_send_keeps_the_draft() = runTest {
+        val timeline = readyRoom()
+        val gate = CompletableDeferred<Unit>()
+        timeline.sendGate = gate
+        val vm = vm()
+
+        vm.updateDraft("first")
+        vm.send()
+        runCurrent()
+        assertTrue(vm.sending.value)
+
+        vm.send()
+        runCurrent()
+        assertEquals("first", vm.draft.value)
+        assertEquals(listOf("first"), timeline.sent)
+
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals("", vm.draft.value)
+    }
+
+    @Test
+    fun retry_uses_the_same_item_and_never_sends_again() = runTest {
+        val timeline = readyRoom()
+        val vm = vm()
+        val itemId = EventOrTxnId.Transaction("txn-1")
+
+        vm.retrySend(itemId)
+        advanceUntilIdle()
+
+        assertEquals(listOf(itemId), timeline.retried)
+        assertTrue(timeline.sent.isEmpty())
+    }
+
+    @Test
+    fun delete_aborts_the_failed_echo() = runTest {
+        val timeline = readyRoom()
+        val vm = vm()
+        val itemId = EventOrTxnId.Transaction("txn-1")
+
+        vm.abortSend(itemId)
+        advanceUntilIdle()
+
+        assertEquals(listOf(itemId), timeline.aborted)
+        assertTrue(timeline.sent.isEmpty())
     }
 
     @Test

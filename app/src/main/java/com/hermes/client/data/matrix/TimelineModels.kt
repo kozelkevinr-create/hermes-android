@@ -21,6 +21,8 @@ sealed interface TimelineEntry {
         val isEdited: Boolean,
         val kind: MessageKind,
         val sendState: MessageSendState,
+        /** SDK identity used to retry or abort this event's local echo, when known. */
+        val itemId: EventOrTxnId? = null,
     ) : TimelineEntry
 
     /** An event we could not decrypt, shown as "Encrypted message". */
@@ -35,6 +37,12 @@ sealed interface TimelineEntry {
 
 /** Message kinds the timeline renders differently (text, image/file placeholders, etc.). */
 enum class MessageKind { TEXT, NOTICE, EMOTE, IMAGE, FILE, OTHER }
+
+/** Opaque SDK identity of a timeline event: either a remote event id or a local transaction id. */
+sealed interface EventOrTxnId {
+    data class Event(val eventId: String) : EventOrTxnId
+    data class Transaction(val transactionId: String) : EventOrTxnId
+}
 
 /** Local send state of a message, mirroring the SDK's `EventSendState`. */
 enum class MessageSendState { NOT_SENT_YET, SENDING_FAILED, SENT }
