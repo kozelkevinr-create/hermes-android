@@ -2,7 +2,9 @@ package com.hermes.client.data.matrix
 
 import android.content.Context
 import com.hermes.client.data.diagnostics.DebugLog
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -112,6 +114,9 @@ private class RustClientHandle(private val client: Client) : MatrixClientHandle 
     private var entriesHandle: TaskHandle? = null
     @Volatile private var closed = false
 
+    /** Timeline handles opened from this client; they must finish tearing down before [client]. */
+    private val timelines = ClosableRegistry<RustTimelineHandle>()
+
     // Every entry point refuses a closed handle instead of touching destroyed native objects.
     private fun requireOpen() = check(!closed) { "Matrix client handle is closed" }
 
@@ -168,6 +173,13 @@ private class RustClientHandle(private val client: Client) : MatrixClientHandle 
             throw e
         }
         val handle = RustTimelineHandle(room, timeline)
+        if (!timelines.register(handle)) {
+            // The client is closing: nothing will await this handle, so tear it down here.
+            handle.close()
+            handle.awaitClosed()
+            throw IllegalStateException("Matrix client handle is closed")
+        }
+        handle.onClosed { timelines.unregister(handle) }
         try {
             handle.start()
         } catch (e: Throwable) {
@@ -195,6 +207,10 @@ private class RustClientHandle(private val client: Client) : MatrixClientHandle 
             DebugLog.log("matrix-error", "sync stop failed: ${e.javaClass.simpleName}")
         }
         rawUpdates.close()
+        // Children before the client: every open timeline must finish its own teardown (which
+        // destroys its Room/Timeline) before client.destroy(). close() is already suspend, and the
+        // manager calls it off the main thread.
+        timelines.closeAll()
         runCatching { entriesHandle?.destroy() }
         runCatching { controller?.destroy() }
         runCatching { listResult?.destroy() }
@@ -220,7 +236,7 @@ private val FALLBACK_ID_COUNTER = java.util.concurrent.atomic.AtomicLong(0)
 private class RustTimelineHandle(
     private val room: Room,
     private val timeline: Timeline,
-) : MatrixTimelineHandle {
+) : MatrixTimelineHandle, AsyncCloseable {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val rawUpdates = ClosableDiffQueue<TimelineDiff> { it.destroyCarriedItems() }
 
@@ -230,10 +246,31 @@ private class RustTimelineHandle(
     private val _paginationState = MutableStateFlow(PaginationState.Idle)
     override val paginationState: StateFlow<PaginationState> = _paginationState.asStateFlow()
 
-    private var listenerHandle: TaskHandle? = null
-    private var paginationHandle: TaskHandle? = null
+    @Volatile private var listenerHandle: TaskHandle? = null
+    @Volatile private var paginationHandle: TaskHandle? = null
     private var collectorJob: Job? = null
-    @Volatile private var closed = false
+    private val closeRequested = AtomicBoolean(false)
+    private val tornDown = CompletableDeferred<Unit>()
+
+    /**
+     * Every FFI call on [timeline] / [room] (start, UI pagination, repaginator pages) runs inside
+     * [FfiUseGuard.use]; the teardown's [FfiUseGuard.closeAndAwait] refuses new uses, waits for the
+     * in-flight ones and only then runs the destroys. So no call can reach a destroyed object, and a
+     * call made after close returns promptly without touching FFI.
+     */
+    private val ffi = FfiUseGuard {
+        // Stable now: start() is a guarded use and has finished. Stop diffs, drain what is buffered
+        // (each item destroyed exactly once), then destroy listener, pagination, timeline, room.
+        val listener = listenerHandle
+        val pagination = paginationHandle
+        runCatching { listener?.cancel() }
+        runCatching { pagination?.cancel() }
+        rawUpdates.close()
+        runCatching { listener?.destroy() }
+        runCatching { pagination?.destroy() }
+        runCatching { timeline.destroy() }
+        runCatching { room.destroy() }
+    }
 
     private val repaginator = TimelineRepaginator(scope) { count -> paginateBackwards(count) }
 
@@ -281,55 +318,51 @@ private class RustTimelineHandle(
 
     /** Attaches the listener and pagination subscription, then loads the first page. */
     suspend fun start() {
-        if (closed) return
-        listenerHandle = timeline.addListener(listener)
-        paginationHandle = timeline.subscribeToBackPaginationStatus(statusListener)
-        val hitStart = timeline.paginateBackwards(TIMELINE_PAGE_SIZE.toUShort())
-        // Resets only count once the first page has been requested (a Clear during the initial
-        // load must not schedule another page); seed its result so a start-of-room page also stops
-        // any later Clear from firing a redundant one.
-        repaginator.onFirstPageRequested(hitStart)
-    }
-
-    override suspend fun paginateBackwards(count: Int): Boolean {
-        if (closed) return false
-        _paginationState.value = PaginationState.Loading
-        return timeline.paginateBackwards(count.toUShort())
-    }
-
-    override fun close() {
-        if (closed) return
-        closed = true
-        repaginator.close()
-        // Capture the handles now so the teardown coroutine reads stable references and this method
-        // never blocks the caller. Teardown must wait for the collector and any in-flight pagination
-        // to finish before destroying FFI objects: `cancel()` alone returns immediately, so a
-        // collector still running on Dispatchers.Default could otherwise touch a destroyed
-        // timeline/room (use-after-free). The ordered teardown is launched on this handle's
-        // background scope (Dispatchers.Default, never cancelled) rather than making close() suspend,
-        // so it never blocks the main thread and still guarantees the order:
-        //   set closed -> cancel SDK TaskHandles -> cancelAndJoin the collector -> join pagination ->
-        //   drain the queue -> destroy timeline then room.
-        val listener = listenerHandle
-        val pagination = paginationHandle
-        listenerHandle = null
-        paginationHandle = null
-        // Stop new diffs immediately; a late diff is discarded by ClosableDiffQueue.send().
-        runCatching { listener?.cancel() }
-        runCatching { pagination?.cancel() }
-        scope.launch {
-            collectorJob?.cancelAndJoin()
-            repaginator.awaitClosed()
-            // Discards anything still buffered (or sent after close), then closes the channel; each
-            // item is destroyed exactly once.
-            rawUpdates.close()
-            runCatching { listener?.destroy() }
-            runCatching { pagination?.destroy() }
-            runCatching { timeline.destroy() }
-            runCatching { room.destroy() }
+        ffi.use(Unit) {
+            listenerHandle = timeline.addListener(listener)
+            paginationHandle = timeline.subscribeToBackPaginationStatus(statusListener)
+            val hitStart = timeline.paginateBackwards(TIMELINE_PAGE_SIZE.toUShort())
+            // Resets only count once the first page has been requested (a Clear during the initial
+            // load must not schedule another page); seed its result so a start-of-room page also stops
+            // any later Clear from firing a redundant one.
+            repaginator.onFirstPageRequested(hitStart)
         }
     }
 
+    override suspend fun paginateBackwards(count: Int): Boolean = ffi.use(false) {
+        _paginationState.value = PaginationState.Loading
+        timeline.paginateBackwards(count.toUShort())
+    }
+
+    /** Runs [action] once teardown has fully finished (immediately if it already has). */
+    fun onClosed(action: () -> Unit) {
+        tornDown.invokeOnCompletion { action() }
+    }
+
+    override suspend fun awaitClosed() = tornDown.join()
+
+    override fun close() {
+        if (!closeRequested.compareAndSet(false, true)) return
+        // Refuse new FFI calls immediately and stop the debounced repagination; this never blocks the
+        // caller. The ordered teardown runs on this handle's own background scope (Dispatchers.Default,
+        // never cancelled) so it cannot block the main thread:
+        //   refuse uses -> cancel SDK TaskHandles -> cancelAndJoin the collector -> join the
+        //   repaginator's page -> wait for in-flight guarded calls -> drain queue and destroy.
+        ffi.beginClose()
+        repaginator.close()
+        // Best effort now so diffs stop early; the guarded destroy repeats it from stable state.
+        runCatching { listenerHandle?.cancel() }
+        runCatching { paginationHandle?.cancel() }
+        scope.launch {
+            try {
+                collectorJob?.cancelAndJoin()
+                repaginator.awaitClosed()
+                ffi.closeAndAwait()
+            } finally {
+                tornDown.complete(Unit)
+            }
+        }
+    }
 }
 
 /** Destroys every [TimelineItem] carried by a diff the collector never received. */

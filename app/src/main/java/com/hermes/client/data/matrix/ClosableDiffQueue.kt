@@ -29,18 +29,13 @@ internal class ClosableDiffQueue<T>(private val onDiscard: (T) -> Unit) {
      *
      * Both the closed check and the [Channel.trySend] happen under [lock], so [close] cannot run
      * between them (which would strand a batch that passed the check but was sent after the drain).
+     * Discarding a rejected batch happens after the lock is released.
      */
-    fun send(batch: List<T>): Boolean = synchronized(lock) {
-        if (closed) {
-            batch.forEach(onDiscard)
-            return false
-        }
-        val result = channel.trySend(batch)
-        if (result.isFailure) {
-            batch.forEach(onDiscard)
-            return false
-        }
-        true
+    fun send(batch: List<T>): Boolean {
+        val accepted = synchronized(lock) { !closed && channel.trySend(batch).isSuccess }
+        // Rejected: discard outside the lock, since onDiscard destroys FFI handles.
+        if (!accepted) batch.forEach(onDiscard)
+        return accepted
     }
 
     /** Marks the queue closed (atomically, so double close is a no-op), then drains the buffer. */
