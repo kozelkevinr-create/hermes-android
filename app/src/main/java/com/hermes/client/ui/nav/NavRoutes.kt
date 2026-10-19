@@ -1,0 +1,91 @@
+package com.hermes.client.ui.nav
+
+/**
+ * The route patterns declared by the NavHost in [HermesNav]. Every `composable(...)` uses one of
+ * these constants so [isDeclaredRoute] can verify that tab routes, start destinations, deep-link
+ * outputs and widget targets all resolve to a real destination — a dropped `composable` compiles
+ * fine (NavHost routes are plain strings) and only crashes at runtime, so this list makes that
+ * regression testable.
+ *
+ * A `{name}` segment marks a single path-segment parameter (e.g. `chat/{id}` matches `chat/abc`).
+ */
+object NavRoutes {
+    const val SETUP = "setup"
+    const val ACTIVITY = "activity"
+    const val SESSIONS = "sessions"
+    const val YOU = "you"
+    const val GATEWAY_SESSIONS = "gateway_sessions"
+    const val MATRIX_ROOM = "matrix_room/{roomId}"
+    const val ARCHIVED = "archived"
+    const val CHAT = "chat/{id}"
+    const val MODELS = "models"
+    const val PROFILES = "profiles"
+    const val CRON = "cron"
+    const val CRON_DETAIL = "cron_detail/{id}"
+    const val CRON_EDIT = "cron_edit/{id}"
+    const val MESSAGING = "messaging"
+    const val MESSAGING_SETUP = "messaging_setup/{id}"
+    const val USAGE = "usage"
+    const val SETTINGS = "settings"
+    const val SETTINGS_APPEARANCE = "settings_appearance"
+    const val SETTINGS_NOTIFICATIONS = "settings_notifications"
+    const val SETTINGS_MEMORY = "settings_memory"
+    const val SETTINGS_PROMPTS = "settings_prompts"
+    const val SETTINGS_MCP = "settings_mcp"
+    const val SETTINGS_ENV = "settings_env"
+    const val SETTINGS_CONNECTION = "settings_connection"
+    const val SETTINGS_MATRIX = "settings_matrix"
+    const val SETTINGS_DIAGNOSTICS = "settings_diagnostics"
+    const val SETTINGS_ABOUT = "settings_about"
+    const val MANAGEMENT = "management"
+    const val SESSION_ADMIN = "session_admin"
+    const val AGENTS_TOOLS = "agents_tools"
+}
+
+/** Every route pattern a `composable(...)` may declare, in the order they appear in the NavHost. */
+val NAV_ROUTES: List<String> = listOf(
+    NavRoutes.SETUP,
+    NavRoutes.ACTIVITY,
+    NavRoutes.SESSIONS,
+    NavRoutes.YOU,
+    NavRoutes.GATEWAY_SESSIONS,
+    NavRoutes.MATRIX_ROOM,
+    NavRoutes.ARCHIVED,
+    NavRoutes.CHAT,
+    NavRoutes.MODELS,
+    NavRoutes.PROFILES,
+    NavRoutes.CRON,
+    NavRoutes.CRON_DETAIL,
+    NavRoutes.CRON_EDIT,
+    NavRoutes.MESSAGING,
+    NavRoutes.MESSAGING_SETUP,
+    NavRoutes.USAGE,
+    NavRoutes.SETTINGS,
+    NavRoutes.SETTINGS_APPEARANCE,
+    NavRoutes.SETTINGS_NOTIFICATIONS,
+    NavRoutes.SETTINGS_MEMORY,
+    NavRoutes.SETTINGS_PROMPTS,
+    NavRoutes.SETTINGS_MCP,
+    NavRoutes.SETTINGS_ENV,
+    NavRoutes.SETTINGS_CONNECTION,
+    NavRoutes.SETTINGS_MATRIX,
+    NavRoutes.SETTINGS_DIAGNOSTICS,
+    NavRoutes.SETTINGS_ABOUT,
+    NavRoutes.MANAGEMENT,
+    NavRoutes.SESSION_ADMIN,
+    NavRoutes.AGENTS_TOOLS,
+)
+
+/** True when [pattern] (a NavHost route pattern) matches the concrete [route]. */
+fun navPatternMatches(pattern: String, route: String): Boolean {
+    val segments = pattern.split('/')
+    val actual = route.split('/')
+    if (segments.size != actual.size) return false
+    return segments.indices.all { i ->
+        val segment = segments[i]
+        (segment.startsWith("{") && segment.endsWith("}")) || segment == actual[i]
+    }
+}
+
+/** True when [route] resolves to one of the declared [NAV_ROUTES] patterns. */
+fun isDeclaredRoute(route: String): Boolean = NAV_ROUTES.any { navPatternMatches(it, route) }

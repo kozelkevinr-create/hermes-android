@@ -181,7 +181,7 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
                 startDestination = start,
                 modifier = contentModifier,
             ) {
-            composable("setup") {
+            composable(NavRoutes.SETUP) {
                 SetupScreen(
                     onSaved = {
                         nav.navigate("activity") { popUpTo("setup") { inclusive = true } }
@@ -189,7 +189,7 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
                 )
             }
             // ---- Tab roots ----
-            composable("sessions") {
+            composable(NavRoutes.SESSIONS) {
                 // The Chats tab is the Matrix room list only; gateway sessions live under Settings.
                 com.hermes.client.ui.matrix.MatrixRoomListScreen(
                     // Room ids contain '!' and ':', so they travel URL-encoded as one path segment.
@@ -197,7 +197,7 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
                     onSetup = { nav.navigate("settings_matrix") { launchSingleTop = true } },
                 )
             }
-            composable("gateway_sessions") {
+            composable(NavRoutes.GATEWAY_SESSIONS) {
                 SessionsScreen(
                     onOpen = { id -> nav.navigate("chat/$id") },
                     onMenu = back,
@@ -205,32 +205,40 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
                     onUnauthorized = onUnauthorized,
                 )
             }
+            composable(NavRoutes.MATRIX_ROOM) { entry ->
+                com.hermes.client.ui.matrix.MatrixRoomScreen(
+                    roomId = entry.arguments?.getString("roomId") ?: "",
+                    onBack = back,
+                )
+            }
+            composable(NavRoutes.ACTIVITY) { com.hermes.client.ui.activity.MissionControlScreen(onNavigate = push) }
+            composable(NavRoutes.YOU) { YouHubScreen(onNavigate = push) }
 
             // ---- Pushed screens (back arrow) ----
-            composable("archived") {
+            composable(NavRoutes.ARCHIVED) {
                 com.hermes.client.ui.sessions.ArchivedSessionsScreen(
                     onOpen = { id -> nav.navigate("chat/$id") },
                     onBack = back,
                     onUnauthorized = onUnauthorized,
                 )
             }
-            composable("chat/{id}") { entry ->
+            composable(NavRoutes.CHAT) { entry ->
                 ChatScreen(
                     sessionId = entry.arguments?.getString("id") ?: "",
                     onMenu = back,
                     onUnauthorized = onUnauthorized,
                 )
             }
-            composable("models") { ModelsScreen(onMenu = back) }
-            composable("profiles") { ProfilesScreen(onMenu = back) }
-            composable("cron") {
+            composable(NavRoutes.MODELS) { ModelsScreen(onMenu = back) }
+            composable(NavRoutes.PROFILES) { ProfilesScreen(onMenu = back) }
+            composable(NavRoutes.CRON) {
                 CronScreen(
                     onMenu = back,
                     onOpen = { id -> nav.navigate("cron_detail/$id") },
                     onNew = { seed -> nav.navigate("cron_edit/$seed") },
                 )
             }
-            composable("cron_detail/{id}") { entry ->
+            composable(NavRoutes.CRON_DETAIL) { entry ->
                 val id = entry.arguments?.getString("id") ?: ""
                 CronDetailScreen(
                     jobId = id,
@@ -238,64 +246,64 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
                     onEdit = { nav.navigate("cron_edit/$id") },
                 )
             }
-            composable("cron_edit/{id}") { entry ->
+            composable(NavRoutes.CRON_EDIT) { entry ->
                 CronEditScreen(
                     jobId = entry.arguments?.getString("id") ?: "new",
                     onDone = { nav.popBackStack() },
                 )
             }
-            composable("messaging") {
+            composable(NavRoutes.MESSAGING) {
                 MessagingScreen(
                     onMenu = back,
                     onSetup = { id -> nav.navigate("messaging_setup/$id") },
                 )
             }
-            composable("messaging_setup/{id}") { entry ->
+            composable(NavRoutes.MESSAGING_SETUP) { entry ->
                 MessagingSetupScreen(
                     platformId = entry.arguments?.getString("id") ?: "",
                     onDone = { nav.popBackStack() },
                 )
             }
-            composable("usage") { UsageScreen(onMenu = back) }
-            composable("settings") {
+            composable(NavRoutes.USAGE) { UsageScreen(onMenu = back) }
+            composable(NavRoutes.SETTINGS) {
                 SettingsScreen(
                     onMenu = back,
                     onNavigate = { dest -> nav.navigate(dest) { launchSingleTop = true } },
                 )
             }
-            composable("settings_appearance") { AppearanceScreen(onBack = { nav.popBackStack() }) }
-            composable("settings_notifications") {
+            composable(NavRoutes.SETTINGS_APPEARANCE) { AppearanceScreen(onBack = { nav.popBackStack() }) }
+            composable(NavRoutes.SETTINGS_NOTIFICATIONS) {
                 com.hermes.client.ui.settings.NotificationsScreen(onBack = { nav.popBackStack() })
             }
-            composable("settings_memory") { MemorySettingsScreen(onBack = { nav.popBackStack() }) }
-            composable("settings_prompts") {
+            composable(NavRoutes.SETTINGS_MEMORY) { MemorySettingsScreen(onBack = { nav.popBackStack() }) }
+            composable(NavRoutes.SETTINGS_PROMPTS) {
                 com.hermes.client.ui.settings.PromptLibraryScreen(onBack = { nav.popBackStack() })
             }
-            composable("settings_mcp") { McpSettingsScreen(onBack = { nav.popBackStack() }) }
-            composable("settings_env") { EnvScreen(onBack = { nav.popBackStack() }) }
-            composable("settings_connection") {
+            composable(NavRoutes.SETTINGS_MCP) { McpSettingsScreen(onBack = { nav.popBackStack() }) }
+            composable(NavRoutes.SETTINGS_ENV) { EnvScreen(onBack = { nav.popBackStack() }) }
+            composable(NavRoutes.SETTINGS_CONNECTION) {
                 com.hermes.client.ui.settings.ConnectionSettingsScreen(onBack = { nav.popBackStack() })
             }
-            composable("settings_matrix") {
+            composable(NavRoutes.SETTINGS_MATRIX) {
                 com.hermes.client.ui.matrix.MatrixAccountScreen(onBack = { nav.popBackStack() })
             }
-            composable("settings_diagnostics") {
+            composable(NavRoutes.SETTINGS_DIAGNOSTICS) {
                 com.hermes.client.ui.settings.DiagnosticsScreen(onBack = { nav.popBackStack() })
             }
-            composable("settings_about") { AboutScreen(onBack = { nav.popBackStack() }) }
-            composable("management") {
+            composable(NavRoutes.SETTINGS_ABOUT) { AboutScreen(onBack = { nav.popBackStack() }) }
+            composable(NavRoutes.MANAGEMENT) {
                 ManagementScreen(
                     onMenu = back,
                     onNavigate = { dest -> nav.navigate(dest) { launchSingleTop = true } },
                 )
             }
-            composable("session_admin") {
+            composable(NavRoutes.SESSION_ADMIN) {
                 SessionAdminScreen(
                     onMenu = back,
                     onOpen = { id -> nav.navigate("chat/$id") },
                 )
             }
-            composable("agents_tools") { AgentsToolsScreen(onMenu = back) }
+            composable(NavRoutes.AGENTS_TOOLS) { AgentsToolsScreen(onMenu = back) }
             }
         }
     }
