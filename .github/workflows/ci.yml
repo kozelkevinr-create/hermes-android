@@ -4,9 +4,9 @@ name: CI
 # Uses an unsigned debug build, so it needs no secrets.
 on:
   push:
-    branches: [main, dev]
+    branches: [main]
   pull_request:
-    branches: [main, dev]
+    branches: [main]
 
 jobs:
   build:
