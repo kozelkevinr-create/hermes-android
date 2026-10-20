@@ -26,7 +26,7 @@ Encrypted and unencrypted rooms must both work, so the client uses the matrix-ru
 | 3 | Room timeline | Paginate, live diffs, edits, send text/images, read receipts |
 | 4 | Command wrapper | Palette of Hermes messaging commands (`/new /stop /model /usage /retry /undo /title /status /help /personality /approve /deny` ...); native New session -> `/new`, model picker -> `/model`, stop -> `/stop`; approval prompts get approve / always / deny buttons that send the matching reactions |
 | 5 | New-room sheet (done) | Encrypted toggle (default from a setting); create DM + invite bot |
-| 6 | E2EE UX | Recovery key, SAS emoji verification (done), unable-to-decrypt states (done); recovery flow pending |
+| 6 | E2EE UX | Done: UTD states, SAS emoji verification, recovery key (recovery completion on-device blocked by the homeserver's deleted-backup endpoint — see Phase 6c) |
 | 7 | Background | Background sync + notifications (reuse `GatewayConnectionService`; UnifiedPush later) |
 
 ## Phase 0 results
@@ -438,6 +438,60 @@ don't match; outcomes show Done / Try again.
 
 **Tests:** MatrixVerificationPresentationTest 7, MatrixVerificationViewModelTest 8, manager +2;
 full suite after: 85 fixtures, 615 tests, 0 failures.
+
+### 6c — recovery key (done, commit 9e7a1fe)
+
+**Seam:** `MatrixRecoveryPhase`/`MatrixBackupPhase` (UNKNOW-safe mirrors of the FFI enums,
+mapped by name so newer binding values read as UNKNOWN) + `MatrixRecoveryStatus`; `MatrixRecoveryHandle`
+(status() snapshot, enable / recover / reset / disable, never-throw) and
+`MatrixRecoveryEnableResult` (KeyCreated(key) / StaleBackupExists / Failed — the FFI's
+`RecoveryException.BackupExistsOnServer` is a real, common situation and worth its own arm).
+`MatrixClientHandle.getRecovery()` (default null) — one `Encryption`-bound handle per session,
+created through `MatrixClientManager.recoveryHandle()` (same lock discipline), destroyed with
+the client in `close()`.
+
+**Rust side:** `RustRecoveryHandle` is poll-based: `status()` = `recoveryState()`+`backupState()`
+snapshots; `enable()` = `enableRecovery(waitForBackupsToUpload=true, passphrase=null, listener)`
+whose progress listener is deliberately reduced to a single busy state (granular i/n counts cut);
+`recover(key)` trims and hands to the SDK; `reset()` = `resetRecoveryKey()` (the lost-key path);
+`disable()` = `disableRecovery()`.
+
+**State machine (pure, `MatrixRecovery.kt`):** Status(phases) ⇄ Enabling / Recovering /
+Resetting / Disabling; outcomes: EnabledKey(key, one-time view), Recovered, and the failure
+families (EnablingFailed, RecoverFailed, ResetFailed, StaleBackup, Recreating,
+RecreatingFailed, DisableFailed), plus Unavailable. `recoveryKeyIsPlausible` gates the paste
+(non-empty trimmed single line 8..512 chars; the server decides the rest).
+
+**VM:** one handle per live session (cached across sheet re-opens), phases re-read on open and
+after every settle; the one-time key lives only in the EnabledKey state and never in logs.
+
+**UI:** the account screen's "Recovery…" button opens the sheet:
+- Status shows `Key backup: <phase> · engine: <phase>` and branches per phase — off/unknown:
+  "Enable recovery"; incomplete: paste-key restore field + "Enable backup on this device" (the
+  post-reset continuation) + the two-step-confirmed "I don't have my recovery key" reset; enabled:
+  status line + "Turn off recovery".
+- EnabledKey shows the key once with Copy (Done copies too, so a slip does not lose it).
+- StaleBackup explains the server backup mismatch and offers an explicit confirm-less "Delete the
+  old backup and set up a new one" (delete keys that are unreadable without the lost key).
+
+**On-device findings (emulator, this day):**
+- The test account was in the INCOMPLETE state: a server-side key backup exists that no held
+  key matches (pre-dating our recovery work). The sheet showed it and correctly refused the
+  enable shortcut until the stale backup is gone.
+- Wrong-key restore fails as designed ("Restore failed" → Try again returns to the snapshot).
+- `reset()` works: the fresh key appeared once (never logged, dump of the key screen was
+  deleted from disk immediately; the value never entered any log or artifact).
+- Completing the reset continuation was blocked by the homeserver itself: `enableRecovery`
+  throws `RecoveryException.BackupExistsOnServer` (mapped to StaleBackupExists) and the
+  subsequent `disableRecovery()` throws `RecoveryException.Client` — the simplified homeserver
+  does not accept the backup-deletion call, so recreation cannot finish there. The flow,
+  states and copy handle it; needs a homeserver that supports the backup-deletion endpoints,
+  or wiping the account's m.room_key backups server-side. Documented as open.
+- Real bug caught by tests while building: the plausibility gate checked the untrimmed paste for
+  newlines, rejecting valid keys with trailing whitespace — fixed to trim first.
+
+**Tests:** MatrixRecoveryPresentationTest 5, MatrixRecoveryViewModelTest 9, manager +2; full
+suite after: 87 fixtures, 632 tests, 0 failures.
 
 ## Out of scope for Phase 0
 
