@@ -26,7 +26,7 @@ Encrypted and unencrypted rooms must both work, so the client uses the matrix-ru
 | 3 | Room timeline | Paginate, live diffs, edits, send text/images, read receipts |
 | 4 | Command wrapper | Palette of Hermes messaging commands (`/new /stop /model /usage /retry /undo /title /status /help /personality /approve /deny` ...); native New session -> `/new`, model picker -> `/model`, stop -> `/stop`; approval prompts get approve / always / deny buttons that send the matching reactions |
 | 5 | New-room sheet (done) | Encrypted toggle (default from a setting); create DM + invite bot |
-| 6 | E2EE UX | Recovery key, SAS emoji verification, unable-to-decrypt states |
+| 6 | E2EE UX | Recovery key, SAS emoji verification (done), unable-to-decrypt states (done); recovery flow pending |
 | 7 | Background | Background sync + notifications (reuse `GatewayConnectionService`; UnifiedPush later) |
 
 ## Phase 0 results
@@ -393,6 +393,51 @@ a room whose only message events are UTD reads "No messages yet". `Room.latestEv
 so no code on our side can surface "Encrypted message" there. Accepted: the preview briefly
 understates (timeline is authoritative on open), and the alternative would be paginating every
 empty-looking room, which is worse. Revisit only if the binding grows a UTD latest-event variant.
+
+### 6b — SAS emoji verification (done, commit 4b26c52)
+
+**Seam:** `MatrixSasEmoji(symbol, description)`, `MatrixVerificationEvent` (Incoming /
+Accepted / SasStarted / Emojis / Finished / Cancelled(byUs, cancelCode) / Failed) and
+`MatrixVerificationHandle` (events flow + requestDeviceVerification / requestUserVerification /
+acceptRequest / startSas / approve / decline / cancel, all never-throw; one collector per flow).
+`MatrixClientHandle.getVerificationController()` (default null) is called through the manager
+(`MatrixClientManager.verificationController()`, same lock discipline as the other client calls;
+the client `close()` destroys the controller, so logout tears it down with the session).
+
+**Rust side:** `RustVerificationHandle` owns `SessionVerificationController`; the FFI delegate
+runs on Rust threads and is mapped to pure events immediately (emoji/prompt objects destroyed in
+situ). `sasCancelInfo()` is only populated for SAS-stage cancellations, so the direction of an
+earlier-stage cancel comes from a `selfCancelled` flag set by our own cancel/decline calls.
+A decimal-only verification prompt is not rendered — both sides then stall until cancellation
+(no known partner initiates decimals).
+
+**State machine (pure, `MatrixVerification.kt`):** Idle → Incoming(deviceName) | WaitingAccept →
+WaitingEmojis → Emojis → Verified, with Cancelled / Failed as outcomes from any point. A settled
+state ignores late events. Headlines are content-free strings.
+
+**VM:** one controller per live session, created on first sheet open and kept across re-opens
+(so an incoming request arriving while the sheet is closed is still folded in when the collector
+is live); the outgoing "accepted" event auto-sends SAS start (the initiator's job; the protocol
+dedups double starts). Buttons drive the seam; failures come back only as flow events.
+
+**UI:** the Matrix account screen's "Verify device…" button opens the sheet: Idle offers
+"Verify with another session" (own-device SAS) and "Verify with @bot…" (user verification to the
+declared bot MXID); incoming requests get Accept/Decline with the peer device's display name;
+the emoji stage renders up to 7 emojis (symbol + description, 4 per row) with them match /
+don't match; outcomes show Done / Try again.
+
+**On-device (emulator):**
+- Idle entries render with both buttons; "Verify with @hermes:matrix.home.lan" sends the user
+  verification request (`requestUserVerification` ok), waits, and Cancel settles as expected.
+- After fixing the `selfCancelled` fallback: cancelling an own-device request shows "You
+  cancelled" (before the fix, a cancelled flow read "They cancelled" because `sasCancelInfo()`
+  was unpopulated outside the SAS stage).
+- The emoji stage needs a cooperating peer; a no-peer run cannot pass it (covered by VM tests
+  instead). Bot-side SAS support is unconfirmed — if the bot accepts verification, the full
+  emoji comparison can be run against it later.
+
+**Tests:** MatrixVerificationPresentationTest 7, MatrixVerificationViewModelTest 8, manager +2;
+full suite after: 85 fixtures, 615 tests, 0 failures.
 
 ## Out of scope for Phase 0
 
