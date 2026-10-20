@@ -27,7 +27,7 @@ Encrypted and unencrypted rooms must both work, so the client uses the matrix-ru
 | 4 | Command wrapper | Palette of Hermes messaging commands (`/new /stop /model /usage /retry /undo /title /status /help /personality /approve /deny` ...); native New session -> `/new`, model picker -> `/model`, stop -> `/stop`; approval prompts get approve / always / deny buttons that send the matching reactions |
 | 5 | New-room sheet (done) | Encrypted toggle (default from a setting); create DM + invite bot |
 | 6 | E2EE UX | Done: UTD states, SAS emoji verification, recovery key (recovery completion on-device blocked by the homeserver's deleted-backup endpoint — see Phase 6c) |
-| 7 | Background | Background sync + notifications (reuse `GatewayConnectionService`; UnifiedPush later) |
+| 7 | Background (done) | In-process background sync + message notifications via `GatewayConnectionService`; UnifiedPush/while-killed delivery deferred |
 
 ## Phase 0 results
 
@@ -492,6 +492,39 @@ after every settle; the one-time key lives only in the EnabledKey state and neve
 
 **Tests:** MatrixRecoveryPresentationTest 5, MatrixRecoveryViewModelTest 9, manager +2; full
 suite after: 87 fixtures, 632 tests, 0 failures.
+
+## Phase 7: background notifications
+
+**Design.** The Rust sync already runs for the whole process lifetime (it is started once in
+`MatrixClientManager.activate` and never paused on background), so Phase 7 adds no new service or
+sync control: `GatewayConnectionService` (the existing foreground service behind Settings →
+Notifications → Enable) keeps the process alive and now also collects `MatrixClientManager.rooms`.
+Each emission is diffed against the previous one by the pure `diffMatrixNotifications`.
+
+**Rules.**
+- A room notifies only if it was already in the previous snapshot (initial sync/login/cold start
+  never flood the shade), the unread count grew — or latest activity advanced while unread > 0 —
+  the latest event is not our own ("You"), the app is backgrounded, and `enabled` + the new
+  `matrixMessages` pref (default on, "Chat messages" toggle) are set.
+- Unread dropping to 0 cancels that room's notification (read here or elsewhere) regardless of
+  foreground/prefs. Per-room stable id, kept clear of 1001-1003.
+- New `matrix_messages` channel (IMPORTANCE_HIGH, private on lockscreen). Tap routes through the
+  existing `extra_route` rail to `matrix_room/<encoded id>`.
+
+**Real race found on-device:** unread and the latest-event preview arrive as separate SDK updates;
+the unread bump landed while the preview still read "You" (our own message), so the first version
+(unread-growth only + own-sender check) never posted. Fixed by also firing on an activity-ts
+advance with unread pending; covered by `stale_own_preview_then_activity_advance_posts_on_second_update`.
+
+**On-device (emulator):** with the app backgrounded, a bot reply posted a "Home Channel" notification
+with the reply text; tapping it opened that room and cleared the notification; opening a room
+cancels its notification; the "Chat messages" toggle appears under Notifications.
+
+**Not done / limits:** nothing is delivered while the process is dead or the foreground service is
+stopped (6h dataSync cap on API 35+) — needs UnifiedPush/FCM; no per-room mute (SDK notification
+modes not read); no reply action; no log of any message content.
+
+**Tests:** `MatrixNotificationMapperTest` 14; full suite after: 88 fixtures, 646 tests, 0 failures.
 
 ## Out of scope for Phase 0
 

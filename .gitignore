@@ -27,3 +27,6 @@ CLAUDE.md
 
 # Local Matrix debug prefills (see matrix.defaults.properties.example)
 matrix.defaults.properties
+
+# Reviewer notes (local only)
+FOLLOWUP.md
