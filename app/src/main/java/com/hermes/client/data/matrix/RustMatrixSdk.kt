@@ -24,9 +24,13 @@ import org.matrix.rustcomponents.sdk.ClientSessionDelegate
 import org.matrix.rustcomponents.sdk.CreateRoomParameters
 import org.matrix.rustcomponents.sdk.Disposable
 import org.matrix.rustcomponents.sdk.EditedContent
+import org.matrix.rustcomponents.sdk.EnableRecoveryProgress
+import org.matrix.rustcomponents.sdk.EnableRecoveryProgressListener
+import org.matrix.rustcomponents.sdk.Encryption
 import org.matrix.rustcomponents.sdk.EventOrTransactionId
 import org.matrix.rustcomponents.sdk.EventSendState
 import org.matrix.rustcomponents.sdk.EventTimelineItem
+import org.matrix.rustcomponents.sdk.RecoveryException
 import org.matrix.rustcomponents.sdk.ImageInfo
 import org.matrix.rustcomponents.sdk.LatestEventValue
 import org.matrix.rustcomponents.sdk.MembershipChange
@@ -132,6 +136,9 @@ private class RustClientHandle(private val client: Client) : MatrixClientHandle 
     /** The SAS verification controller; owned by this client and destroyed with it. */
     @Volatile private var verification: MatrixVerificationHandle? = null
 
+    /** The recovery (key-backup) handle; owned by this client and destroyed with it. */
+    @Volatile private var recovery: MatrixRecoveryHandle? = null
+
     /** Timeline handles opened from this client; they must finish tearing down before [client]. */
     private val timelines = ClosableRegistry<RustTimelineHandle>()
 
@@ -217,6 +224,18 @@ private class RustClientHandle(private val client: Client) : MatrixClientHandle 
         null
     }
 
+    override suspend fun getRecovery(): MatrixRecoveryHandle? = try {
+        requireOpen()
+        recovery ?: run {
+            RustRecoveryHandle(client.encryption()).also { recovery = it }
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        DebugLog.log("matrix-error", "recovery handle failed: ${e.javaClass.simpleName}")
+        null
+    }
+
     override suspend fun openTimeline(roomId: String): MatrixTimelineHandle? {
         requireOpen()
         val room = client.getRoom(roomId) ?: return null
@@ -270,6 +289,8 @@ private class RustClientHandle(private val client: Client) : MatrixClientHandle 
         timelines.closeAll()
         runCatching { verification?.close() }
         verification = null
+        runCatching { recovery?.close() }
+        recovery = null
         runCatching { entriesHandle?.destroy() }
         runCatching { controller?.destroy() }
         runCatching { listResult?.destroy() }
@@ -916,6 +937,83 @@ private suspend fun RoomListEntriesUpdate.toSummaryDiff(): ListDiff<MatrixRoomSu
         is RoomListEntriesUpdate.Remove -> ListDiff.Remove(index.toInt())
         is RoomListEntriesUpdate.Truncate -> ListDiff.Truncate(length.toInt())
         is RoomListEntriesUpdate.Reset -> ListDiff.Reset(many(values))
+    }
+}
+
+/**
+ * The session's recovery (key-backup) surface over the FFI `Encryption`. Poll-based: the UI
+ * reads [status] snapshots (never user or server values in logs) and drives the actions; the
+ * one-time recovery key comes back from [enable] and is only ever shown in the sheet.
+ */
+private class RustRecoveryHandle(private val encryption: Encryption) : MatrixRecoveryHandle {
+    /**
+     * The FFI enums carry exactly the seam enum names; a name the newer binding added that our
+     * enum lacks reads as UNKNOWN instead of throwing (parsing never throws).
+     */
+    override fun status(): MatrixRecoveryStatus = try {
+        MatrixRecoveryStatus(
+            recovery = MatrixRecoveryPhase.valueOf(encryption.recoveryState().name),
+            backup = MatrixBackupPhase.valueOf(encryption.backupState().name),
+        )
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        DebugLog.log("matrix-error", "recovery status failed: ${e.javaClass.simpleName}")
+        MatrixRecoveryStatus(MatrixRecoveryPhase.UNKNOWN, MatrixBackupPhase.UNKNOWN)
+    }
+
+    private val progressListener = object : EnableRecoveryProgressListener {
+        override fun onUpdate(progress: EnableRecoveryProgress) {
+            // Progress granularity is a deliberate cut: enable() completes only once the uploads
+            // finished, so the sheet shows a single busy state. The progress value is plain data
+            // (no native handle), so nothing to destroy here.
+        }
+    }
+
+    override suspend fun enable(): MatrixRecoveryEnableResult = try {
+        MatrixRecoveryEnableResult.KeyCreated(
+            encryption.enableRecovery(true, null, progressListener),
+        )
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: RecoveryException.BackupExistsOnServer) {
+        MatrixRecoveryEnableResult.StaleBackupExists
+    } catch (e: Exception) {
+        DebugLog.log("matrix-error", "recovery enable failed: ${e.javaClass.simpleName}")
+        MatrixRecoveryEnableResult.Failed
+    }
+
+    override suspend fun recover(key: String): Boolean = try {
+        encryption.recover(key.trim())
+        true
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        DebugLog.log("matrix-error", "recovery restore failed: ${e.javaClass.simpleName}")
+        false
+    }
+
+    override suspend fun reset(): String? = try {
+        encryption.resetRecoveryKey()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        DebugLog.log("matrix-error", "recovery reset failed: ${e.javaClass.simpleName}")
+        null
+    }
+
+    override suspend fun disable(): Boolean = try {
+        encryption.disableRecovery()
+        true
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        DebugLog.log("matrix-error", "recovery disable failed: ${e.javaClass.simpleName}")
+        false
+    }
+
+    override fun close() {
+        runCatching { encryption.destroy() }
     }
 }
 

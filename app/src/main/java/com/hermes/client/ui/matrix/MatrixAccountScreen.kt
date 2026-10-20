@@ -26,6 +26,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -38,6 +41,8 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hermes.client.data.matrix.MatrixSasEmoji
 import com.hermes.client.data.matrix.MatrixState
+import com.hermes.client.data.matrix.MatrixBackupPhase
+import com.hermes.client.data.matrix.MatrixRecoveryPhase
 import com.hermes.client.ui.components.HermesTopBar
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -51,6 +56,9 @@ fun MatrixAccountScreen(
     val verificationVm: MatrixVerificationViewModel = hiltViewModel()
     val sheetOpen by verificationVm.sheetOpen.collectAsStateWithLifecycle()
     val verificationUi by verificationVm.ui.collectAsStateWithLifecycle()
+    val recoveryVm: MatrixRecoveryViewModel = hiltViewModel()
+    val recoveryOpen by recoveryVm.sheetOpen.collectAsStateWithLifecycle()
+    val recoveryUi by recoveryVm.ui.collectAsStateWithLifecycle()
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             try {
@@ -75,7 +83,13 @@ fun MatrixAccountScreen(
         ) {
             val s = ui.account
             if (s is MatrixState.Ready) {
-                SignedIn(s, ui.roomCount, onLogout = vm::logout, onVerify = { verificationVm.openSheet() })
+                SignedIn(
+                    s,
+                    ui.roomCount,
+                    onLogout = vm::logout,
+                    onVerify = { verificationVm.openSheet() },
+                    onRecovery = { recoveryVm.openSheet() },
+                )
             } else {
                 LoginForm(ui, vm, onPickCa = { picker.launch(arrayOf("*/*")) })
             }
@@ -96,10 +110,37 @@ fun MatrixAccountScreen(
             onDismiss = verificationVm::dismissSheet,
         )
     }
+    if (recoveryOpen) {
+        RecoverySheet(
+            ui = recoveryUi,
+            onEnable = recoveryVm::enable,
+            onConfirmKey = recoveryVm::confirmKeyShown,
+            onCopyKey = { context.copyText((recoveryUi as? RecoveryUi.EnabledKey)?.key.orEmpty()) },
+            onRecover = recoveryVm::recover,
+            onReset = recoveryVm::reset,
+            onRecreate = recoveryVm::recreate,
+            onDisable = recoveryVm::disable,
+            onTryAgain = recoveryVm::tryAgain,
+            onDismiss = recoveryVm::dismissSheet,
+        )
+    }
+}
+
+/** Copies plain text to the system clipboard; used for the one-time recovery key. */
+private fun android.content.Context.copyText(text: String) {
+    @Suppress("DEPRECATION")
+    val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Recovery key", text))
 }
 
 @Composable
-private fun SignedIn(s: MatrixState.Ready, roomCount: Int, onLogout: () -> Unit, onVerify: () -> Unit) {
+private fun SignedIn(
+    s: MatrixState.Ready,
+    roomCount: Int,
+    onLogout: () -> Unit,
+    onVerify: () -> Unit,
+    onRecovery: () -> Unit,
+) {
     Text("Signed in", style = MaterialTheme.typography.titleMedium)
     Text("User ID: ${s.userId}")
     Text("Device ID: ${s.deviceId}")
@@ -107,6 +148,7 @@ private fun SignedIn(s: MatrixState.Ready, roomCount: Int, onLogout: () -> Unit,
     Text("Bot: ${s.botMxid.ifBlank { "(none)" }}")
     Text("Rooms: $roomCount")
     OutlinedButton(onClick = onVerify) { Text("Verify device…") }
+    OutlinedButton(onClick = onRecovery) { Text("Recovery…") }
     OutlinedButton(onClick = onLogout) { Text("Log out") }
 }
 
@@ -309,6 +351,223 @@ private fun EmojiGrid(emojis: List<MatrixSasEmoji>) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The recovery sheet: the account's key-backup status, setup with a one-time key reveal,
+ * restore from a pasted key, and teardown.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun RecoverySheet(
+    ui: RecoveryUi,
+    onEnable: () -> Unit,
+    onConfirmKey: () -> Unit,
+    onCopyKey: () -> Unit,
+    onRecover: (String) -> Unit,
+    onReset: () -> Unit,
+    onRecreate: () -> Unit,
+    onDisable: () -> Unit,
+    onTryAgain: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(recoveryHeadline(ui), style = MaterialTheme.typography.titleMedium)
+            when (ui) {
+                is RecoveryUi.Status -> {
+                    Text(
+                        "Key backup: ${recoveryPhaseLabel(ui.recovery)} · engine: ${backupPhaseLabel(ui.backup)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    when {
+                        ui.recovery == MatrixRecoveryPhase.INCOMPLETE -> {
+                            var pasted by remember { mutableStateOf("") }
+                            var confirming by remember { mutableStateOf(false) }
+                            Text(
+                                "Recovery is set up, but this device is missing keys. Paste the " +
+                                    "recovery key from when recovery was created, or finish the " +
+                                    "backup here if this device already holds the secret (for " +
+                                    "example right after a reset).",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            OutlinedTextField(
+                                value = pasted,
+                                onValueChange = { pasted = it },
+                                label = { Text("Recovery key") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Button(
+                                onClick = { onRecover(pasted) },
+                                enabled = recoveryKeyIsPlausible(pasted),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text("Restore keys") }
+                            OutlinedButton(onClick = onEnable, modifier = Modifier.fillMaxWidth()) {
+                                Text("Enable backup on this device")
+                            }
+                            if (!confirming) {
+                                OutlinedButton(onClick = { confirming = true }, modifier = Modifier.fillMaxWidth()) {
+                                    Text("I don't have my recovery key")
+                                }
+                            } else {
+                                Text(
+                                    "Resetting replaces the account's recovery: sessions holding " +
+                                        "the old key lose their backup access, and you get a fresh " +
+                                        "key. Other devices' verified-trust view is reset too.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                                Button(
+                                    onClick = { onReset() },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) { Text("Yes, reset recovery") }
+                                OutlinedButton(onClick = { confirming = false }, modifier = Modifier.fillMaxWidth()) {
+                                    Text("Keep as is")
+                                }
+                            }
+                        }
+                        ui.recovery == MatrixRecoveryPhase.ENABLED -> {
+                            Text(
+                                "The account's keys are backed up; a fresh session restores them " +
+                                    "with its recovery key.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            OutlinedButton(onClick = onDisable, modifier = Modifier.fillMaxWidth()) {
+                                Text("Turn off recovery")
+                            }
+                        }
+                        else -> {
+                            Text(
+                                "Back this device's keys up to the server, protected by a single " +
+                                    "recovery key. Store that key securely — this is the only time " +
+                                    "it is shown.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Button(onClick = onEnable, modifier = Modifier.fillMaxWidth()) {
+                                Text("Enable recovery")
+                            }
+                        }
+                    }
+                }
+                RecoveryUi.Enabling -> {
+                    CircularProgressIndicator(Modifier.size(22.dp))
+                    Text(
+                        "Creating the backup and uploading this device's keys; this can take a " +
+                            "while, keep the app open.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                is RecoveryUi.EnabledKey -> {
+                    Text(
+                        "This is the only time the key is shown. Store it outside the device.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        ui.key,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = onCopyKey) { Text("Copy") }
+                        Button(onClick = { onCopyKey(); onConfirmKey() }) { Text("Done") }
+                    }
+                    Text(
+                        "Done also copies the key, so a slip here does not lose it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                RecoveryUi.StaleBackup -> {
+                    Text(
+                        "The server still holds a key backup created with a recovery key this " +
+                            "device does not have. Deleting that backup discards its keys — " +
+                            "they cannot be read without the lost key — and then a fresh backup " +
+                            "is set up with the key this device holds.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Button(onClick = onRecreate, modifier = Modifier.fillMaxWidth()) {
+                        Text("Delete the old backup and set up a new one")
+                    }
+                    OutlinedButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+                        Text("Close")
+                    }
+                }
+                RecoveryUi.Recreating -> {
+                    CircularProgressIndicator(Modifier.size(22.dp))
+                    Text(
+                        "Deleting the old backup and building a new one; this can take a while.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                RecoveryUi.Recovering -> {
+                    CircularProgressIndicator(Modifier.size(22.dp))
+                    Text(
+                        "Downloading and importing the backed-up keys.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                RecoveryUi.Resetting -> {
+                    CircularProgressIndicator(Modifier.size(22.dp))
+                    Text(
+                        "Replacing the account's recovery setup; the new key appears once it " +
+                            "finishes.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                RecoveryUi.Recovered -> {
+                    Text(
+                        "The backed-up keys are restored; this session decrypts the old history " +
+                            "again.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Button(onClick = onDismiss) { Text("Done") }
+                }
+                RecoveryUi.Disabling -> {
+                    CircularProgressIndicator(Modifier.size(22.dp))
+                    Text(
+                        "Removing the backup from the server.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                RecoveryUi.EnablingFailed, RecoveryUi.RecoverFailed, RecoveryUi.ResetFailed,
+                RecoveryUi.RecreatingFailed, RecoveryUi.DisableFailed,
+                -> {
+                    Text(
+                        "That did not work. Check the connection and try again; nothing was " +
+                            "changed half-way.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Button(onClick = onTryAgain, modifier = Modifier.fillMaxWidth()) {
+                        Text("Try again")
+                    }
+                    OutlinedButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+                        Text("Close")
+                    }
+                }
+                RecoveryUi.Unavailable -> {
+                    Text(
+                        "There is no live session; sign in first.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Button(onClick = onDismiss) { Text("Close") }
                 }
             }
         }

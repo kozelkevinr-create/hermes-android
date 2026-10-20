@@ -27,6 +27,44 @@ import java.io.File
 import java.nio.file.Files
 import java.util.concurrent.Executors
 
+/**
+ * A recovery-handle fake: snapshots and action results are settable, calls recorded.
+ */
+private class FakeRecoveryHandle : MatrixRecoveryHandle {
+    var statusSnapshot = MatrixRecoveryStatus(MatrixRecoveryPhase.DISABLED, MatrixBackupPhase.UNKNOWN)
+    var closed = false
+    val calls = mutableListOf<String>()
+
+    override fun status(): MatrixRecoveryStatus {
+        calls += "status"
+        return statusSnapshot
+    }
+
+    override suspend fun enable(): MatrixRecoveryEnableResult {
+        calls += "enable"
+        return MatrixRecoveryEnableResult.KeyCreated("key-fake")
+    }
+
+    override suspend fun recover(key: String): Boolean {
+        calls += "recover"
+        return true
+    }
+
+    override suspend fun reset(): String? {
+        calls += "reset"
+        return "key-fake"
+    }
+
+    override suspend fun disable(): Boolean {
+        calls += "disable"
+        return true
+    }
+
+    override fun close() {
+        closed = true
+    }
+}
+
 /** A verification controller fake (nothing to record beyond identity and close). */
 private open class FakeVerificationController : MatrixVerificationHandle {
     override val events: Flow<MatrixVerificationEvent> = kotlinx.coroutines.flow.emptyFlow()
@@ -80,6 +118,19 @@ private class FakeHandle(
         return verificationControllerResult
     }
 
+    /** Set to null to make recovery-handle creation fail. */
+    val fakeRecovery = FakeRecoveryHandle()
+    var recoveryHandleResult: MatrixRecoveryHandle? = fakeRecovery
+    var recoveryRequests = 0
+    var recoveryLog = mutableListOf<String>()
+
+    override suspend fun getRecovery(): MatrixRecoveryHandle? {
+        if (closed) return null
+        recoveryRequests++
+        recoveryLog += "recovery"
+        return recoveryHandleResult
+    }
+
     override suspend fun login(username: String, password: String, deviceName: String): MatrixSessionData {
         log += "login:$username"
         loginGate?.await()
@@ -120,8 +171,9 @@ private class FakeHandle(
         closed = true
         diffs.close()
         log += "close"
-        // The RustClientHandle destroys the verification controller with the client; mirror it.
+        // The RustClientHandle destroys the child handles with the client; mirror that here.
         ((verificationControllerResult as? FakeVerificationController) ?: fakeController).closed = true
+        ((recoveryHandleResult as? FakeRecoveryHandle) ?: fakeRecovery).closed = true
     }
 }
 
@@ -230,6 +282,32 @@ class MatrixClientManagerTest {
         m.logout().join()
         assertTrue(h.fakeController.closed)
         assertTrue(h.controllerLog.contains("controller"))
+    }
+
+    @Test fun recovery_handle_goes_to_the_client_when_ready() = runTest {
+        val m = manager()
+        m.doLogin().join()
+        val r = m.recoveryHandle()
+        assertEquals(sdk.handles.single().fakeRecovery, r)
+        assertEquals(1, sdk.handles.single().recoveryRequests)
+    }
+
+    @Test fun recovery_handle_is_null_without_a_session_and_closed_with_the_handle() = runTest {
+        val m = manager()
+        assertNull(m.recoveryHandle())
+
+        m.doLogin().join()
+        val h = sdk.handles.single()
+        assertNotNull(m.recoveryHandle())
+
+        // A failed recovery-handle creation reads as null but does not tear the session down.
+        h.recoveryHandleResult = null
+        assertNull(m.recoveryHandle())
+        assertEquals(2, h.recoveryRequests)
+        assertTrue(m.state.value is MatrixState.Ready)
+
+        m.logout().join()
+        assertTrue(h.fakeRecovery.closed)
     }
 
     @Test fun login_success_goes_ready_and_saves_session() = runTest {

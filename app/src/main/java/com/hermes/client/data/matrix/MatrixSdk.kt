@@ -18,6 +18,59 @@ class MatrixClientConfig(
     val currentSession: (userId: String) -> MatrixSessionData?,
 )
 
+/** Recovery phases of the account's key backup, as the recovery sheet shows them. */
+enum class MatrixRecoveryPhase { UNKNOWN, ENABLED, DISABLED, INCOMPLETE }
+
+/** Phases of the backup engine itself (uploads and restores), as the recovery sheet shows them. */
+enum class MatrixBackupPhase { UNKNOWN, CREATING, ENABLING, RESUMING, ENABLED, DOWNLOADING, DISABLING }
+
+/** Snapshot of the session's recovery state: the account-wide key backup and its engine. */
+data class MatrixRecoveryStatus(val recovery: MatrixRecoveryPhase, val backup: MatrixBackupPhase)
+
+/**
+ * The outcome of enabling recovery: the one-time recovery key, a stale server-side backup the
+ * fresh key cannot match (it must be deleted before a new backup can be set up), or a plain
+ * failure.
+ */
+sealed interface MatrixRecoveryEnableResult {
+    /** Recovery is enabled end-to-end; [key] is the recovery key, to be shown exactly once. */
+    data class KeyCreated(val key: String) : MatrixRecoveryEnableResult
+
+    /** The server already holds a key backup that this device's (fresh) key cannot match. */
+    data object StaleBackupExists : MatrixRecoveryEnableResult
+
+    /** Anything else: server issues, local crypto problems. */
+    data object Failed : MatrixRecoveryEnableResult
+}
+
+/**
+ * The recovery (key-backup) surface of one live session, created once per session on
+ * [MatrixClientHandle.getRecovery] and closed with the client. Never throws; failures come
+ * back as null/false, and the recovery key is handed out exactly once, by [enable].
+ */
+interface MatrixRecoveryHandle : AutoCloseable {
+    /** The recovery and backup phases right now. */
+    fun status(): MatrixRecoveryStatus
+
+    /**
+     * Enables recovery and waits for the key uploads to finish; the result carries the recovery
+     * key (shown exactly once and never logged), or tells why setup could not finish.
+     */
+    suspend fun enable(): MatrixRecoveryEnableResult
+
+    /** Restores this session's key backup from [key]; false for a wrong key or server failure. */
+    suspend fun recover(key: String): Boolean
+
+    /**
+     * Replaces the account's recovery setup and returns a new recovery key (the old one stops
+     * working); the "lost my recovery key" path out of the INCOMPLETE state. Null on failure.
+     */
+    suspend fun reset(): String?
+
+    /** Turns recovery off and deletes the server-side backup. False on failure. */
+    suspend fun disable(): Boolean
+}
+
 /** Thin seam over the matrix-rust-sdk FFI so the account manager is JVM-testable with fakes. */
 interface MatrixSdk {
     suspend fun createClient(config: MatrixClientConfig): MatrixClientHandle
@@ -99,6 +152,12 @@ interface MatrixClientHandle {
      * client; null without a live session or on failure. Never throws.
      */
     suspend fun getVerificationController(): MatrixVerificationHandle? = null
+
+    /**
+     * The session's recovery (key-backup) handle, created once per session and closed with the
+     * client; null without a live session or on failure. Never throws.
+     */
+    suspend fun getRecovery(): MatrixRecoveryHandle? = null
 
     /**
      * Room-list diffs, already mapped to summaries. Single-collector; collect before [startSync].
