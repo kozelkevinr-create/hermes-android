@@ -1,6 +1,6 @@
 package com.hermes.client.ui.nav
 
-private val TAB_ROUTES = setOf("chat_tab", "sessions", "brain", "oneshot")
+private val TAB_ROUTES = setOf("messages", "sessions", "brain", "oneshot")
 
 /**
  * Map a `hermes://` URI string to an internal nav route, or null if it isn't a recognised link.
@@ -16,8 +16,8 @@ fun deepLinkRouteFor(raw: String): String? {
     return when (host) {
         "tab" -> segs.singleOrNull()?.takeIf { it in TAB_ROUTES }
         "chat" -> segs.singleOrNull()?.takeIf { it.isNotBlank() && '/' !in it }?.let { "chat/$it" }
-        // The gateway session list (Settings → Sessions); the Chats tab is Matrix-only.
-        "gateway" -> segs.singleOrNull()?.takeIf { it == "sessions" }?.let { "gateway_sessions" }
+        // Kept for old widget/shortcut links: the gateway session list is now the Sessions tab.
+        "gateway" -> segs.singleOrNull()?.takeIf { it == "sessions" }?.let { "sessions" }
         else -> null
     }
 }

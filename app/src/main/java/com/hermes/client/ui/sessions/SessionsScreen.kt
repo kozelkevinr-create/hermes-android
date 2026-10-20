@@ -72,15 +72,15 @@ import com.hermes.client.ui.record.RecordTaskViewModel
 import kotlinx.coroutines.launch
 
 /**
- * The gateway session list, reached from Settings → Sessions (the Chats tab is Matrix-only).
- * [onMenu] is its back action.
+ * The gateway session list (the Sessions tab). [onMenu], when set, adds a back arrow; the tab
+ * itself shows none.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SessionsScreen(
     vm: SessionsViewModel = hiltViewModel(),
     onOpen: (String) -> Unit,
-    onMenu: () -> Unit = {},
+    onMenu: (() -> Unit)? = null,
     onOpenArchived: () -> Unit = {},
     onUnauthorized: () -> Unit = {},
 ) {
@@ -147,8 +147,10 @@ fun SessionsScreen(
                 com.hermes.client.ui.components.HermesTopBar(
                     title = "Sessions",
                     navigationIcon = {
-                        IconButton(onClick = onMenu) {
-                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                        if (onMenu != null) {
+                            IconButton(onClick = onMenu) {
+                                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                            }
                         }
                     },
                     actions = {

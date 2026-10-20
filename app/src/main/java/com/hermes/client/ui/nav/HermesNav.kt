@@ -67,7 +67,7 @@ import androidx.compose.material.icons.rounded.Psychology
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
 
 private val TABS = listOf(
-    Tab("chat_tab", "Chat", Icons.AutoMirrored.Rounded.Chat),
+    Tab("messages", "Messages", Icons.AutoMirrored.Rounded.Chat),
     Tab("sessions", "Sessions", Icons.Rounded.Forum),
     Tab("brain", "Brain", Icons.Rounded.Psychology),
     Tab("oneshot", "Oneshot", Icons.Rounded.Bolt),
@@ -91,7 +91,7 @@ private val TABS = listOf(
 @Composable
 fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsumed: () -> Unit = {}) {
     val nav = rememberNavController()
-    val start = if (hasConfig) NavRoutes.CHAT_TAB else NavRoutes.SETUP
+    val start = if (hasConfig) NavRoutes.MESSAGES else NavRoutes.SETUP
 
     // Guard the navigate: a hermes:// deep link is untrusted, and even the notification path could
     // carry a stale/unknown route — an unresolved route must be ignored, never crash.
@@ -188,23 +188,23 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
             composable(NavRoutes.SETUP) {
                 SetupScreen(
                     onSaved = {
-                        nav.navigate(NavRoutes.CHAT_TAB) { popUpTo(NavRoutes.SETUP) { inclusive = true } }
+                        nav.navigate(NavRoutes.MESSAGES) { popUpTo(NavRoutes.SETUP) { inclusive = true } }
                     },
                 )
             }
             // ---- Tab roots ----
-            composable(NavRoutes.SESSIONS) {
-                // The Chats tab is the Matrix room list only; gateway sessions live under Settings.
+            composable(NavRoutes.MESSAGES) {
+                // The Messages tab is the Matrix room list.
                 com.hermes.client.ui.matrix.MatrixRoomListScreen(
                     // Room ids contain '!' and ':', so they travel URL-encoded as one path segment.
                     onOpenRoom = { id -> nav.navigate("matrix_room/${Uri.encode(id)}") },
                     onSetup = { nav.navigate("settings_matrix") { launchSingleTop = true } },
                 )
             }
-            composable(NavRoutes.GATEWAY_SESSIONS) {
+            // The Sessions tab: past gateway sessions; tapping one opens it to continue the chat.
+            composable(NavRoutes.SESSIONS) {
                 SessionsScreen(
                     onOpen = { id -> nav.navigate("chat/$id") },
-                    onMenu = back,
                     onOpenArchived = { nav.navigate("archived") },
                     onUnauthorized = onUnauthorized,
                 )
@@ -218,16 +218,6 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
             }
             composable(NavRoutes.ACTIVITY) { com.hermes.client.ui.activity.MissionControlScreen(onNavigate = push) }
             composable(NavRoutes.BRAIN) { BrainHubScreen(onNavigate = push, onOpenPalette = { showPalette = true }) }
-            // Chat tab opens straight into a new conversation rather than a hub — the common case
-            // is "I want to ask something now", not "browse what I asked before" (that's Sessions).
-            composable(NavRoutes.CHAT_TAB) {
-                com.hermes.client.ui.chat.ChatScreen(
-                    // "" is the new-conversation case the chat VM already understands.
-                    sessionId = "",
-                    onMenu = {},
-                    onUnauthorized = onUnauthorized,
-                )
-            }
             composable(NavRoutes.ONESHOT) {
                 com.hermes.client.ui.oneshot.OneshotScreen(onOpenPalette = { showPalette = true })
             }

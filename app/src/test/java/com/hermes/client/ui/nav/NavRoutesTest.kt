@@ -15,10 +15,10 @@ import org.junit.Test
 class NavRoutesTest {
 
     // The four bottom-bar tab roots (mirrors TABS in HermesNav and TAB_ROUTES in DeepLinkMapper).
-    private val tabRoutes = listOf("chat_tab", "sessions", "brain", "oneshot")
+    private val tabRoutes = listOf("messages", "sessions", "brain", "oneshot")
 
     // Start destinations picked in HermesNav ("setup" gates first launch).
-    private val startDestinations = listOf("chat_tab", "setup")
+    private val startDestinations = listOf("messages", "setup")
 
     @Test
     fun every_tab_is_a_declared_route() {
@@ -40,7 +40,7 @@ class NavRoutesTest {
             "hermes://tab/sessions",
             "hermes://tab/brain",
             "hermes://tab/oneshot",
-            "hermes://tab/chat_tab",
+            "hermes://tab/messages",
             "hermes://gateway/sessions",
             "hermes://chat/abc-123",
         )

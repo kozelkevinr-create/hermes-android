@@ -36,8 +36,6 @@ fun SettingsScreen(
             HorizontalDivider()
             Entry("Matrix account", "Homeserver, login and bot for Matrix sessions") { onNavigate("settings_matrix") }
             HorizontalDivider()
-            Entry("Sessions", "Gateway chats: projects, pins, archive and admin") { onNavigate("gateway_sessions") }
-            HorizontalDivider()
             Entry("Appearance", "Theme, light/dark, tool-call display") { onNavigate("settings_appearance") }
             HorizontalDivider()
             Entry("Notifications", "Approvals, cron, and messaging alerts") { onNavigate("settings_notifications") }

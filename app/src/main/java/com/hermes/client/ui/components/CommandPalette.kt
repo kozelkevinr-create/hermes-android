@@ -32,7 +32,7 @@ data class Command(val label: String, val route: String, val keywords: String = 
 
 /** The fixed set of destinations the palette can jump to. Kept here so it's the single source. */
 val PALETTE_COMMANDS: List<Command> = listOf(
-    Command("New chat", "chat_tab", "ask prompt talk"),
+    Command("Messages", "messages", "chats rooms matrix talk"),
     Command("Sessions", "sessions", "history conversations"),
     Command("Oneshot dispatch", "oneshot", "task background bridge voice"),
     Command("Brain", "brain", "settings config"),

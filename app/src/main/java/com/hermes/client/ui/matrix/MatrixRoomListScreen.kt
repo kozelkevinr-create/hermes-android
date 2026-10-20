@@ -57,7 +57,7 @@ import com.hermes.client.ui.components.LoadingState
 import com.hermes.client.ui.theme.LocalProfileAccent
 import com.hermes.client.ui.theme.rememberProfileAccent
 
-/** The Chats tab: the Matrix room list, one row per room in the SDK's recency order. */
+/** The Messages tab: the Matrix room list, one row per room in the SDK's recency order. */
 @Composable
 fun MatrixRoomListScreen(
     onOpenRoom: (String) -> Unit,
@@ -71,7 +71,7 @@ fun MatrixRoomListScreen(
         vm.createdRoomId.collect { id -> onOpenRoom(id) }
     }
     Scaffold(
-        topBar = { HermesTopBar(title = "Chats") },
+        topBar = { HermesTopBar(title = "Messages") },
         floatingActionButton = {
             if (ready) {
                 FloatingActionButton(onClick = { vm.openNewRoomSheet() }) {

@@ -12,8 +12,8 @@ package com.hermes.client.ui.nav
 object NavRoutes {
     const val SETUP = "setup"
     const val ACTIVITY = "activity"
+    const val MESSAGES = "messages"
     const val SESSIONS = "sessions"
-    const val CHAT_TAB = "chat_tab"
     const val BRAIN = "brain"
     const val ONESHOT = "oneshot"
     const val NETOPS = "netops"
@@ -23,7 +23,6 @@ object NavRoutes {
     const val FILES_AT = "files_at/{path}"
     const val FILE_VIEW = "file_view/{path}"
     const val FILE_EDIT = "file_edit/{path}"
-    const val GATEWAY_SESSIONS = "gateway_sessions"
     const val MATRIX_ROOM = "matrix_room/{roomId}"
     const val ARCHIVED = "archived"
     const val CHAT = "chat/{id}"
@@ -54,8 +53,8 @@ object NavRoutes {
 val NAV_ROUTES: List<String> = listOf(
     NavRoutes.SETUP,
     NavRoutes.ACTIVITY,
+    NavRoutes.MESSAGES,
     NavRoutes.SESSIONS,
-    NavRoutes.CHAT_TAB,
     NavRoutes.BRAIN,
     NavRoutes.ONESHOT,
     NavRoutes.NETOPS,
@@ -65,7 +64,6 @@ val NAV_ROUTES: List<String> = listOf(
     NavRoutes.FILES_AT,
     NavRoutes.FILE_VIEW,
     NavRoutes.FILE_EDIT,
-    NavRoutes.GATEWAY_SESSIONS,
     NavRoutes.MATRIX_ROOM,
     NavRoutes.ARCHIVED,
     NavRoutes.CHAT,
