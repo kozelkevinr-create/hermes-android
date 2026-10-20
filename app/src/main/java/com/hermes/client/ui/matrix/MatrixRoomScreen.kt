@@ -1,7 +1,9 @@
 package com.hermes.client.ui.matrix
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,6 +32,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.CircularProgressIndicator
@@ -87,6 +90,8 @@ fun MatrixRoomScreen(roomId: String, onBack: () -> Unit, onSetup: () -> Unit, vm
     val sending by vm.sending.collectAsStateWithLifecycle()
     val sendFailed by vm.sendFailed.collectAsStateWithLifecycle()
     val draft by vm.draft.collectAsStateWithLifecycle()
+    val editing by vm.editing.collectAsStateWithLifecycle()
+    val editFailed by vm.editFailed.collectAsStateWithLifecycle()
     val name = room?.name ?: roomId
     Scaffold(
         topBar = {
@@ -111,12 +116,16 @@ fun MatrixRoomScreen(roomId: String, onBack: () -> Unit, onSetup: () -> Unit, vm
         },
         bottomBar = {
             if (state is RoomTimelineState.Ready) {
+                val isEditing = editing != null
                 MessageComposer(
                     sending = sending,
-                    sendFailed = sendFailed,
+                    sendFailed = sendFailed && !isEditing,
+                    editing = isEditing,
+                    editFailed = editFailed,
                     draft = draft,
                     onDraftChange = vm::updateDraft,
-                    onSend = vm::send,
+                    onSend = { if (isEditing) vm.submitEdit() else vm.send() },
+                    onCancelEdit = vm::cancelEdit,
                 )
             }
         },
@@ -139,6 +148,7 @@ fun MatrixRoomScreen(roomId: String, onBack: () -> Unit, onSetup: () -> Unit, vm
                     vm::loadMore,
                     onRetrySend = vm::retrySend,
                     onAbortSend = vm::abortSend,
+                    onBeginEdit = vm::beginEdit,
                 )
             }
         }
@@ -151,6 +161,7 @@ private fun TimelineContent(
     onLoadMore: () -> Unit,
     onRetrySend: (EventOrTxnId) -> Unit,
     onAbortSend: (EventOrTxnId) -> Unit,
+    onBeginEdit: (EventOrTxnId, String) -> Unit,
 ) {
     val listState = rememberLazyListState()
     val rows = state.rows
@@ -186,7 +197,7 @@ private fun TimelineContent(
             when (row) {
                 is TimelineRow.DayDivider -> CentredLabel(row.label)
                 is TimelineRow.State -> CentredLabel(row.text)
-                is TimelineRow.Message -> MessageRow(row, onRetrySend, onAbortSend)
+                is TimelineRow.Message -> MessageRow(row, onRetrySend, onAbortSend, onBeginEdit)
             }
         }
         // The footer is the last item, so with reverseLayout it sits at the very top (oldest edge).
@@ -224,14 +235,15 @@ private fun MessageRow(
     row: TimelineRow.Message,
     onRetrySend: (EventOrTxnId) -> Unit,
     onAbortSend: (EventOrTxnId) -> Unit,
+    onBeginEdit: (EventOrTxnId, String) -> Unit,
 ) {
     when {
-        row.isUtd -> Bubble(row, onRetrySend, onAbortSend, content = { MutedText("Encrypted message") })
+        row.isUtd -> Bubble(row, onRetrySend, onAbortSend, onBeginEdit, content = { MutedText("Encrypted message") })
         row.kind == MessageKind.IMAGE ->
-            Bubble(row, onRetrySend, onAbortSend, content = { MutedText(attachmentLabel("image", row.body)) })
+            Bubble(row, onRetrySend, onAbortSend, onBeginEdit, content = { MutedText(attachmentLabel("image", row.body)) })
         row.kind == MessageKind.FILE ->
-            Bubble(row, onRetrySend, onAbortSend, content = { MutedText(attachmentLabel("file", row.body)) })
-        else -> Bubble(row, onRetrySend, onAbortSend, content = { BodyText(row) })
+            Bubble(row, onRetrySend, onAbortSend, onBeginEdit, content = { MutedText(attachmentLabel("file", row.body)) })
+        else -> Bubble(row, onRetrySend, onAbortSend, onBeginEdit, content = { BodyText(row) })
     }
 }
 
@@ -251,17 +263,29 @@ private fun MutedText(text: String) {
     Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun Bubble(
     row: TimelineRow.Message,
     onRetrySend: (EventOrTxnId) -> Unit,
     onAbortSend: (EventOrTxnId) -> Unit,
+    onBeginEdit: (EventOrTxnId, String) -> Unit,
     content: @Composable () -> Unit,
 ) {
     val isOwn = row.isOwn
     val bubbleBg = if (isOwn) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
     val shape = if (isOwn) UserBubbleShape else OtherBubbleShape
     val avatarSpacer = Modifier.width(AvatarSize + 6.dp)
+    val itemId = row.itemId
+    // Own text messages open for editing on a long press; everything else stays inert.
+    val editModifier = if (row.isEditable && itemId != null) {
+        Modifier.combinedClickable(
+            onClick = {},
+            onLongClick = { onBeginEdit(itemId, row.body) },
+        )
+    } else {
+        Modifier
+    }
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = if (isOwn) Arrangement.End else Arrangement.Start,
@@ -287,7 +311,7 @@ private fun Bubble(
                     modifier = Modifier.padding(start = 4.dp, bottom = 2.dp),
                 )
             }
-            Surface(color = bubbleBg, shape = shape) {
+            Surface(color = bubbleBg, shape = shape, modifier = editModifier) {
                 Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                     content()
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -378,14 +402,18 @@ private fun SendStatus(
     }
 }
 
-/** Text composer above the IME / navigation bar. Slash commands are sent as-is for Hermes to parse. */
+/** Text composer above the IME / navigation bar; doubles as the editor when [editing] is set.
+ *  Slash commands are sent as-is for Hermes to parse. */
 @Composable
 private fun MessageComposer(
     sending: Boolean,
     sendFailed: Boolean,
+    editing: Boolean,
+    editFailed: Boolean,
     draft: String,
     onDraftChange: (String) -> Unit,
     onSend: () -> Unit,
+    onCancelEdit: () -> Unit,
 ) {
     val canSend = draft.isNotBlank() && !sending
 
@@ -400,13 +428,28 @@ private fun MessageComposer(
                 .fillMaxWidth()
                 .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)),
         ) {
-            if (sendFailed) {
-                Text(
-                    "Couldn't send",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(start = 16.dp, top = 4.dp),
-                )
+            if (editing) {
+                Row(
+                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Editing message",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        "Cancel",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.clickable { onCancelEdit() }.padding(start = 8.dp),
+                    )
+                }
+            }
+            when {
+                editFailed -> ComposerBanner("Couldn't save")
+                sendFailed -> ComposerBanner("Couldn't send")
             }
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
@@ -416,23 +459,42 @@ private fun MessageComposer(
                     value = draft,
                     onValueChange = onDraftChange,
                     modifier = Modifier.weight(1f),
-                    placeholder = { Text("Message…") },
+                    placeholder = { Text(if (editing) "Edit message…" else "Message…") },
                     maxLines = 5,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(onSend = { submit() }),
                 )
                 Spacer(Modifier.width(8.dp))
                 IconButton(onClick = { submit() }, enabled = canSend) {
-                    Icon(
-                        Icons.AutoMirrored.Rounded.Send,
-                        contentDescription = "Send",
-                        tint = if (canSend) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                    )
+                    if (editing) {
+                        Icon(
+                            Icons.Rounded.Check,
+                            contentDescription = "Save edit",
+                            tint = if (canSend) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                        )
+                    } else {
+                        Icon(
+                            Icons.AutoMirrored.Rounded.Send,
+                            contentDescription = "Send",
+                            tint = if (canSend) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                        )
+                    }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun ComposerBanner(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.error,
+        modifier = Modifier.padding(start = 16.dp, top = 4.dp),
+    )
 }
 
 private data class PaginationSignal(

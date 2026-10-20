@@ -45,6 +45,13 @@ private class FakeTimeline : MatrixTimelineHandle {
     var retryResult = true
     val aborted = mutableListOf<EventOrTxnId>()
     var abortResult = true
+    val edits = mutableListOf<Pair<EventOrTxnId, String>>()
+    var editResult = true
+
+    override suspend fun edit(itemId: EventOrTxnId, newBody: String): Boolean {
+        edits += itemId to newBody
+        return editResult
+    }
 
     override suspend fun sendText(body: String): Boolean {
         sent += body
@@ -336,6 +343,119 @@ class MatrixRoomViewModelTest {
 
         assertEquals(listOf(itemId), timeline.aborted)
         assertTrue(timeline.sent.isEmpty())
+    }
+
+    @Test
+    fun begin_edit_prefills_the_body_and_sets_editing() = runTest {
+        readyRoom()
+        val vm = vm()
+        val itemId = EventOrTxnId.Event("$1evt")
+
+        vm.beginEdit(itemId, "original")
+        advanceUntilIdle()
+
+        assertEquals(itemId, vm.editing.value)
+        assertEquals("original", vm.draft.value)
+        assertFalse(vm.sending.value)
+    }
+
+    @Test
+    fun submit_edit_sends_a_new_body_in_place_and_stops_editing() = runTest {
+        val timeline = readyRoom()
+        val vm = vm()
+        val itemId = EventOrTxnId.Event("$1evt")
+
+        vm.beginEdit(itemId, "original")
+        vm.updateDraft(" revised ")
+        vm.submitEdit()
+        advanceUntilIdle()
+
+        assertEquals(listOf(itemId to "revised"), timeline.edits)
+        assertNull(vm.editing.value)
+        assertEquals("", vm.draft.value)
+        assertFalse(vm.editFailed.value)
+        assertTrue(timeline.sent.isEmpty())
+    }
+
+    @Test
+    fun submit_edit_failure_keeps_editing_and_the_draft() = runTest {
+        val timeline = readyRoom()
+        timeline.editResult = false
+        val vm = vm()
+        val itemId = EventOrTxnId.Event("$1evt")
+
+        vm.beginEdit(itemId, "original")
+        vm.updateDraft("revised")
+        vm.submitEdit()
+        advanceUntilIdle()
+
+        assertTrue(vm.editFailed.value)
+        assertEquals(itemId, vm.editing.value)
+        assertEquals("revised", vm.draft.value)
+    }
+
+    @Test
+    fun a_blank_edit_body_is_ignored() = runTest {
+        val timeline = readyRoom()
+        val vm = vm()
+        val itemId = EventOrTxnId.Event("$1evt")
+
+        vm.beginEdit(itemId, "original")
+        vm.updateDraft("   \n\t ")
+        vm.submitEdit()
+        advanceUntilIdle()
+
+        assertEquals(itemId, vm.editing.value)
+        assertEquals("   \n\t ", vm.draft.value)
+        assertTrue(timeline.edits.isEmpty())
+    }
+
+    @Test
+    fun cancel_edit_restores_the_previous_draft() = runTest {
+        readyRoom()
+        val vm = vm()
+        val itemId = EventOrTxnId.Event("$1evt")
+
+        vm.updateDraft("kept")
+        vm.beginEdit(itemId, "original")
+        assertEquals("original", vm.draft.value)
+        vm.cancelEdit()
+        advanceUntilIdle()
+
+        assertNull(vm.editing.value)
+        assertEquals("kept", vm.draft.value)
+        assertFalse(vm.editFailed.value)
+    }
+
+    @Test
+    fun begin_edit_is_ignored_while_a_send_is_in_flight() = runTest {
+        val timeline = readyRoom()
+        val vm = vm()
+        val gate = CompletableDeferred<Unit>()
+        timeline.sendGate = gate
+
+        vm.updateDraft("hello")
+        vm.send()
+        runCurrent()
+        assertTrue(vm.sending.value)
+
+        vm.beginEdit(EventOrTxnId.Event("$1evt"), "original")
+        assertNull(vm.editing.value)
+
+        gate.complete(Unit)
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun editing_ends_when_the_timeline_is_closed() = runTest {
+        readyRoom()
+        val vm = vm()
+
+        vm.beginEdit(EventOrTxnId.Event("$1evt"), "original")
+        matrix.value = MatrixState.Restoring
+
+        assertNull(vm.editing.value)
+        assertEquals(RoomTimelineState.Opening, vm.state.value)
     }
 
     @Test

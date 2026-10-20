@@ -102,6 +102,18 @@ class TimelinePresentationTest {
     }
 
     @Test
+    fun editability_is_relayed_to_the_row() {
+        val rows = messages(
+            listOf(
+                msg("1", "@me:example.test", nowMs, isOwn = true).copy(isEditable = true),
+                msg("2", "alice", nowMs + 1_000).copy(isEditable = true),
+                msg("3", "@me:example.test", nowMs + 2_000, isOwn = true),
+            ),
+        )
+        assertEquals(listOf(true, true, false), rows.map { it.isEditable })
+    }
+
+    @Test
     fun state_divider_and_read_marker_break_the_group() {
         val entries = listOf(
             msg("1", "alice", nowMs),

@@ -68,6 +68,9 @@ interface MatrixTimelineHandle {
     /** Discards the local echo for [itemId]; false when there is nothing left to abort. Never throws. */
     suspend fun abortSend(itemId: EventOrTxnId): Boolean
 
+    /** Edits [itemId]'s text message to the markdown [newBody]; false when it could not be applied. Never throws. */
+    suspend fun edit(itemId: EventOrTxnId, newBody: String): Boolean
+
     val paginationState: StateFlow<PaginationState>
 
     /** Cancels subscriptions and destroys every SDK object this handle holds. Idempotent. */

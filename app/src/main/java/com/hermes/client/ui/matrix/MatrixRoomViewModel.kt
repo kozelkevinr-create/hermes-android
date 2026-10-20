@@ -81,6 +81,19 @@ class MatrixRoomViewModel internal constructor(
      */
     val draft: StateFlow<String> = _draft.asStateFlow()
 
+    private val _editing = MutableStateFlow<EventOrTxnId?>(null)
+
+    /** The item being edited; null while the composer is in send mode. */
+    val editing: StateFlow<EventOrTxnId?> = _editing.asStateFlow()
+
+    private val _editFailed = MutableStateFlow(false)
+
+    /** True when the last edit attempt failed; cleared when a new one starts or editing ends. */
+    val editFailed: StateFlow<Boolean> = _editFailed.asStateFlow()
+
+    /** The draft to restore when the user cancels the edit. */
+    private var draftBeforeEdit: String? = null
+
     private var timeline: MatrixTimelineHandle? = null
     private var collectJob: Job? = null
     private var loading = false
@@ -214,6 +227,63 @@ class MatrixRoomViewModel internal constructor(
         }
     }
 
+    /**
+     * Enters edit mode for [itemId] on an own text message: the composer prefills its body and the
+     * send button becomes "save edit". Ignored while a send is in flight or already editing, both
+     * leave the composer unchanged.
+     */
+    fun beginEdit(itemId: EventOrTxnId, body: String) {
+        if (_sending.value) return
+        if (_editing.value != null) return
+        draftBeforeEdit = _draft.value
+        _editFailed.value = false
+        _editing.value = itemId
+        _draft.value = body
+    }
+
+    /**
+     * Applies the composer text (trimmed) to the item being edited. Blank input is ignored. The
+     * composer returns to send mode only when the edit is accepted — either way nothing typed after
+     * the submit is lost.
+     */
+    fun submitEdit() {
+        val itemId = _editing.value ?: return
+        val raw = _draft.value
+        val body = raw.trim()
+        if (body.isEmpty()) return
+        if (!_sending.compareAndSet(false, true)) return
+        _editFailed.value = false
+        viewModelScope.launch {
+            try {
+                val handle = timeline
+                val ok = handle != null && handle.edit(itemId, body)
+                if (ok) {
+                    // Keep anything typed after submit, but clear exactly the text we sent.
+                    _draft.compareAndSet(raw, "")
+                    _editing.compareAndSet(itemId, null)
+                } else {
+                    _editFailed.value = true
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                _editFailed.value = true
+            } finally {
+                _sending.value = false
+            }
+        }
+    }
+
+    /** Leaves edit mode and restores the draft from before it started. */
+    fun cancelEdit() {
+        val editing = _editing.value ?: return
+        if (_editing.compareAndSet(editing, null)) {
+            _editFailed.value = false
+            _draft.value = draftBeforeEdit ?: ""
+        }
+        draftBeforeEdit = null
+    }
+
     /** Re-opens the timeline after a failure. */
     fun retry() {
         if (_state.value is RoomTimelineState.Failed) open()
@@ -224,6 +294,11 @@ class MatrixRoomViewModel internal constructor(
         collectJob = null
         timeline?.close()
         timeline = null
+        // The previous handle cannot confirm or retry anything; editing must not spill across one.
+        _editing.value = null
+        draftBeforeEdit = null
+        _editFailed.value = false
+        _sendFailed.value = false
     }
 
     override fun onCleared() {

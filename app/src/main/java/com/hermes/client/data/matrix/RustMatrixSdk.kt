@@ -22,6 +22,7 @@ import org.matrix.rustcomponents.sdk.Client
 import org.matrix.rustcomponents.sdk.ClientBuilder
 import org.matrix.rustcomponents.sdk.ClientSessionDelegate
 import org.matrix.rustcomponents.sdk.Disposable
+import org.matrix.rustcomponents.sdk.EditedContent
 import org.matrix.rustcomponents.sdk.EventOrTransactionId
 import org.matrix.rustcomponents.sdk.EventSendState
 import org.matrix.rustcomponents.sdk.EventTimelineItem
@@ -385,6 +386,33 @@ private class RustTimelineHandle(
         }
     }
 
+    override suspend fun edit(itemId: EventOrTxnId, newBody: String): Boolean = ffi.use(false) {
+        val content = try {
+            messageEventContentFromMarkdown(newBody)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Never log the body: it is user content.
+            DebugLog.log("matrix-timeline", "edit content failed: ${e.javaClass.simpleName}")
+            return@use false
+        }
+        var edited: EditedContent? = null
+        try {
+            edited = EditedContent.RoomMessage(content)
+            timeline.edit(itemId.toSdk(), edited)
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Never log the body: it is user content.
+            DebugLog.log("matrix-timeline", "edit failed: ${e.javaClass.simpleName}")
+            false
+        } finally {
+            runCatching { content.destroy() }
+            edited?.let { runCatching { it.destroy() } }
+        }
+    }
+
     /** Runs [action] once teardown has fully finished (immediately if it already has). */
     fun onClosed(action: () -> Unit) {
         tornDown.invokeOnCompletion { action() }
@@ -490,7 +518,7 @@ private fun TimelineItem.toEntry(): TimelineEntry {
                 TimelineEntry.Unsupported(id)
             } else {
                 try {
-                    event.toEventEntry(id, event.eventOrTransactionId.toItemId())
+                    event.toEventEntry(id, event.eventOrTransactionId.toItemId(), event.isEditable)
                 } finally {
                     event.destroy()
                 }
@@ -505,7 +533,7 @@ private fun TimelineItem.toEntry(): TimelineEntry {
     }
 }
 
-private fun EventTimelineItem.toEventEntry(id: String, itemId: EventOrTxnId): TimelineEntry {
+private fun EventTimelineItem.toEventEntry(id: String, itemId: EventOrTxnId, editable: Boolean): TimelineEntry {
     val disposables = ArrayList<Disposable>()
     try {
         val sender = sender
@@ -519,7 +547,7 @@ private fun EventTimelineItem.toEventEntry(id: String, itemId: EventOrTxnId): Ti
             is TimelineItemContent.MsgLike -> {
                 val msgLike = content.content
                 disposables += msgLike
-                msgLike.toEntry(disposables, id, itemId, sender, senderName, isOwn, ts, sendState)
+                msgLike.toEntry(disposables, id, itemId, editable, sender, senderName, isOwn, ts, sendState)
             }
             is TimelineItemContent.RoomMembership -> TimelineEntry.StateEvent(id, ts, content.membershipSummary())
             is TimelineItemContent.ProfileChange -> TimelineEntry.StateEvent(id, ts, content.profileSummary())
@@ -535,6 +563,7 @@ private fun MsgLikeContent.toEntry(
     disposables: MutableList<Disposable>,
     id: String,
     itemId: EventOrTxnId,
+    editable: Boolean,
     sender: String,
     senderName: String,
     isOwn: Boolean,
@@ -547,17 +576,17 @@ private fun MsgLikeContent.toEntry(
         is MsgLikeKind.Message -> {
             val mc = kind.content
             disposables += mc
-            mc.toMessageEntry(disposables, id, itemId, sender, senderName, isOwn, ts, sendState)
+            mc.toMessageEntry(disposables, id, itemId, editable, sender, senderName, isOwn, ts, sendState)
         }
         is MsgLikeKind.UnableToDecrypt -> TimelineEntry.Utd(id, sender, ts)
         is MsgLikeKind.Redacted ->
-            TimelineEntry.Message(id, sender, senderName, isOwn, ts, "", isEdited = false, MessageKind.OTHER, sendState, itemId)
+            TimelineEntry.Message(id, sender, senderName, isOwn, ts, "", isEdited = false, MessageKind.OTHER, sendState, itemId = itemId)
         is MsgLikeKind.Poll ->
-            TimelineEntry.Message(id, sender, senderName, isOwn, ts, kind.question, isEdited = false, MessageKind.OTHER, sendState, itemId)
+            TimelineEntry.Message(id, sender, senderName, isOwn, ts, kind.question, isEdited = false, MessageKind.OTHER, sendState, itemId = itemId)
         is MsgLikeKind.Sticker ->
-            TimelineEntry.Message(id, sender, senderName, isOwn, ts, kind.body, isEdited = false, MessageKind.IMAGE, sendState, itemId)
+            TimelineEntry.Message(id, sender, senderName, isOwn, ts, kind.body, isEdited = false, MessageKind.IMAGE, sendState, itemId = itemId)
         else ->
-            TimelineEntry.Message(id, sender, senderName, isOwn, ts, "", isEdited = false, MessageKind.OTHER, sendState, itemId)
+            TimelineEntry.Message(id, sender, senderName, isOwn, ts, "", isEdited = false, MessageKind.OTHER, sendState, itemId = itemId)
     }
 }
 
@@ -565,6 +594,7 @@ private fun MessageContent.toMessageEntry(
     disposables: MutableList<Disposable>,
     id: String,
     itemId: EventOrTxnId,
+    editable: Boolean,
     sender: String,
     senderName: String,
     isOwn: Boolean,
@@ -590,7 +620,13 @@ private fun MessageContent.toMessageEntry(
         }
         else -> MessageKind.OTHER to body
     }
-    return TimelineEntry.Message(id, sender, senderName, isOwn, ts, effectiveBody, isEdited, kind, sendState, itemId)
+    // Only plain text can be edited as markdown here; attach / poll / caption edits wait for later.
+    val canEditText = msgType is MessageType.Text
+    return TimelineEntry.Message(
+        id, sender, senderName, isOwn, ts, effectiveBody, isEdited, kind, sendState,
+        isEditable = editable && canEditText,
+        itemId = itemId,
+    )
 }
 
 /** The filename of an attachment, falling back to the message body when the filename is absent. */

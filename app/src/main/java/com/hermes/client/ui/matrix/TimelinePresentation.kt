@@ -35,7 +35,9 @@ sealed interface TimelineRow {
         val isUtd: Boolean,
         /** Delivery state for own messages; [MessageSendState.SENT] for everyone else's. */
         val sendState: MessageSendState,
-        /** SDK identity used to retry or abort this event's local echo, when known. */
+        /** True for own text messages the user may edit; edit affordances show only on these. */
+        val isEditable: Boolean = false,
+        /** SDK identity used to retry, abort or edit this event, when known. */
         val itemId: EventOrTxnId? = null,
     ) : TimelineRow
 }
@@ -86,6 +88,7 @@ fun timelineRows(
                     kind = e.kind,
                     isUtd = false,
                     sendState = e.sendState,
+                    isEditable = e.isEditable,
                     itemId = e.itemId,
                     grouped = isSameGroup(e.sender, e.ts, lastSender, lastTs),
                     zone = zone,
@@ -129,6 +132,7 @@ private fun messageRow(
     kind: MessageKind,
     isUtd: Boolean,
     sendState: MessageSendState,
+    isEditable: Boolean = false,
     itemId: EventOrTxnId? = null,
     grouped: Boolean,
     zone: ZoneId,
@@ -144,6 +148,7 @@ private fun messageRow(
     showSender = !grouped,
     isUtd = isUtd,
     sendState = sendState,
+    isEditable = isEditable,
     itemId = itemId,
 )
 

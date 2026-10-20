@@ -21,6 +21,8 @@ sealed interface TimelineEntry {
         val isEdited: Boolean,
         val kind: MessageKind,
         val sendState: MessageSendState,
+        /** True for own text messages the user may edit with a new markdown body. */
+        val isEditable: Boolean = false,
         /** SDK identity used to retry or abort this event's local echo, when known. */
         val itemId: EventOrTxnId? = null,
     ) : TimelineEntry
