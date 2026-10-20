@@ -22,7 +22,7 @@ object Neon {
 }
 
 // Neon Night (dark)
-private val NightBackground = Neon.Void
+private val NightBackground = Color(0xFF040A06)
 private val NightInk = Color(0xFFC8FFD8)
 private val NightInkDim = Color(0xFF7FB894)
 
@@ -32,14 +32,14 @@ val HermesDarkColors = darkColorScheme(
     primaryContainer = Color(0xFF0B3D1E),
     onPrimaryContainer = Color(0xFF9DFFB8),
     inversePrimary = Color(0xFF0B6B30),
-    secondary = Neon.Cyan,
-    onSecondary = Color(0xFF001F24),
-    secondaryContainer = Color(0xFF003A42),
-    onSecondaryContainer = Color(0xFFA6F4FF),
-    tertiary = Neon.Magenta,
-    onTertiary = Color(0xFF2B0024),
-    tertiaryContainer = Color(0xFF4A0B40),
-    onTertiaryContainer = Color(0xFFFFB0EE),
+    secondary = Color(0xFF7CFFA8),
+    onSecondary = Color(0xFF00210C),
+    secondaryContainer = Color(0xFF0D4A24),
+    onSecondaryContainer = Color(0xFFBFFFD2),
+    tertiary = Color(0xFFC8FF4D),
+    onTertiary = Color(0xFF1B2600),
+    tertiaryContainer = Color(0xFF35461A),
+    onTertiaryContainer = Color(0xFFE4FFA8),
     error = Neon.Red,
     onError = Color(0xFF2D0008),
     errorContainer = Color(0xFF4D0A18),
@@ -48,7 +48,7 @@ val HermesDarkColors = darkColorScheme(
     onBackground = NightInk,
     surface = NightBackground,
     onSurface = NightInk,
-    surfaceVariant = Color(0xFF121A16),
+    surfaceVariant = Color(0xFF102016),
     onSurfaceVariant = NightInkDim,
     surfaceTint = Neon.Phosphor,
     inverseSurface = NightInk,
@@ -75,14 +75,14 @@ val HermesLightColors = lightColorScheme(
     primaryContainer = Color(0xFFB8F5C8),
     onPrimaryContainer = Color(0xFF00210B),
     inversePrimary = Neon.Phosphor,
-    secondary = Color(0xFF00687A),
+    secondary = Color(0xFF2E7D4F),
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFB0EEFA),
-    onSecondaryContainer = Color(0xFF001F26),
-    tertiary = Color(0xFFB0008E),
+    secondaryContainer = Color(0xFFBCF0CE),
+    onSecondaryContainer = Color(0xFF00210C),
+    tertiary = Color(0xFF4F6B18),
     onTertiary = Color.White,
-    tertiaryContainer = Color(0xFFFFD6F3),
-    onTertiaryContainer = Color(0xFF3A002E),
+    tertiaryContainer = Color(0xFFD6F5A0),
+    onTertiaryContainer = Color(0xFF162000),
     error = Color(0xFFC0002A),
     onError = Color.White,
     errorContainer = Color(0xFFFFDADC),
@@ -106,4 +106,25 @@ val HermesLightColors = lightColorScheme(
     surfaceContainer = Color(0xFFE2E9E4),
     surfaceContainerHigh = Color(0xFFDCE4DE),
     surfaceContainerHighest = Color(0xFFD6DFD8),
+)
+
+// Amber ("monochrome amber CRT") alt-palette — an optional nod to amber phosphor monitors.
+// Derived from the green dark scheme so only the hue-bearing roles change; neutrals/surfaces stay.
+val Amber = Color(0xFFFFB000)
+val HermesAmberDarkColors = HermesDarkColors.copy(
+    primary = Amber,
+    onPrimary = Color(0xFF241A00),
+    primaryContainer = Color(0xFF4A3400),
+    onPrimaryContainer = Color(0xFFFFDF9E),
+    inversePrimary = Color(0xFF6B4E0B),
+    secondary = Color(0xFFFFD27C),
+    onSecondary = Color(0xFF241A00),
+    secondaryContainer = Color(0xFF4A3400),
+    onSecondaryContainer = Color(0xFFFFE8BF),
+    tertiary = Color(0xFFFFC14D),
+    onTertiary = Color(0xFF261900),
+    surfaceTint = Amber,
+    onBackground = Color(0xFFFFE7C8),
+    onSurface = Color(0xFFFFE7C8),
+    outline = Color(0xFF6B5A2E),
 )

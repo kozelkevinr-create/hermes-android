@@ -14,11 +14,11 @@ import org.junit.Test
  */
 class NavRoutesTest {
 
-    // The three bottom-bar tab roots (mirrors TABS in HermesNav and TAB_ROUTES in DeepLinkMapper).
-    private val tabRoutes = listOf("activity", "sessions", "you")
+    // The four bottom-bar tab roots (mirrors TABS in HermesNav and TAB_ROUTES in DeepLinkMapper).
+    private val tabRoutes = listOf("chat_tab", "sessions", "brain", "oneshot")
 
     // Start destinations picked in HermesNav ("setup" gates first launch).
-    private val startDestinations = listOf("activity", "setup")
+    private val startDestinations = listOf("chat_tab", "setup")
 
     @Test
     fun every_tab_is_a_declared_route() {
@@ -38,8 +38,9 @@ class NavRoutesTest {
     fun every_deep_link_output_is_declared() {
         val links = listOf(
             "hermes://tab/sessions",
-            "hermes://tab/activity",
-            "hermes://tab/you",
+            "hermes://tab/brain",
+            "hermes://tab/oneshot",
+            "hermes://tab/chat_tab",
             "hermes://gateway/sessions",
             "hermes://chat/abc-123",
         )
@@ -52,8 +53,8 @@ class NavRoutesTest {
     @Test
     fun every_widget_route_is_declared() {
         // From HermesWidget: "> new_chat" is a hermes://new link (create-session), not a nav route,
-        // so it is deliberately absent here. The other two launch into the nav graph.
-        val widgetRoutes = listOf("gateway_sessions", "activity")
+        // so it is deliberately absent here. The others launch into the nav graph.
+        val widgetRoutes = listOf("oneshot", "sessions", "brain")
         widgetRoutes.forEach { route ->
             assertTrue("widget route \"$route\" is not declared", isDeclaredRoute(route))
         }

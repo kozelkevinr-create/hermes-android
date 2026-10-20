@@ -51,69 +51,11 @@ import com.hermes.client.ui.theme.accentFromHsl
 import com.hermes.client.ui.theme.colorArgbToHsl
 import com.hermes.client.ui.theme.hslToColorArgb
 
-/**
- * "You" tab — profile identity + everything about the account/app: the profile quick-switch
- * (relocated here from the retired drawer), plus Profiles, Models, Management, and Settings.
- */
+// Accent-colour picker for a profile, extracted from the retired "You" hub. Lives next to the
+// profile list now: a per-profile colour is a property of that profile, not a separate tab.
+
 @Composable
-fun YouHubScreen(
-    onNavigate: (String) -> Unit,
-    vm: ShellViewModel = hiltViewModel(),
-) {
-    val profiles by vm.profiles.collectAsStateWithLifecycle()
-    val active by vm.active.collectAsStateWithLifecycle()
-    var showColorPicker by remember { mutableStateOf(false) }
-    val currentOverride = active?.let { com.hermes.client.ui.theme.LocalProfileAccentOverrides.current[it] }
-
-    Scaffold(topBar = { HermesTopBar(title = "You", subtitle = active?.let { "Active profile: $it" }) }) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState())) {
-            Text(
-                "PROFILES",
-                style = MaterialTheme.typography.titleSmall,
-                color = LocalProfileAccent.current.accent,
-                modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
-            )
-            ProfileAvatarRow(
-                profiles = profiles.map { it.name },
-                active = active,
-                onSwitch = { vm.switchProfile(it) },
-            )
-            active?.let { a ->
-                HubRow(
-                    Icons.Rounded.Palette,
-                    "Accent colour",
-                    if (currentOverride != null) "Custom colour for \"$a\"" else "Auto colour for \"$a\"",
-                ) { showColorPicker = true }
-            }
-            HorizontalDivider(Modifier.padding(vertical = 12.dp))
-
-            HubRow(Icons.Rounded.People, "Profiles", "Manage tenant profiles") { onNavigate("profiles") }
-            HorizontalDivider()
-            HubRow(Icons.Rounded.AutoAwesome, "Models", "Browse & pick models") { onNavigate("models") }
-            HorizontalDivider()
-            HubRow(Icons.Rounded.AdminPanelSettings, "Management", "Admin & session tools") { onNavigate("management") }
-            HorizontalDivider()
-            HubRow(Icons.Rounded.Settings, "Settings", "App & connection settings") { onNavigate("settings") }
-        }
-    }
-
-    if (showColorPicker) {
-        active?.let { a ->
-            AccentColorDialog(
-                profile = a,
-                selected = currentOverride,
-                onPick = { argb -> vm.setAccent(a, argb); showColorPicker = false },
-                onAuto = { vm.clearAccent(a); showColorPicker = false },
-                onDismiss = { showColorPicker = false },
-            )
-        }
-    }
-}
-
-/** Curated-swatch colour picker for a profile's accent, with an Auto (clear) option. Swatches are
- *  contrast-safe by construction, so any pick keeps chrome text legible. */
-@Composable
-private fun AccentColorDialog(
+internal fun AccentColorDialog(
     profile: String,
     selected: Int?,
     onPick: (Int) -> Unit,
@@ -200,7 +142,7 @@ private fun SliderRow(
 
 /** Quick-switch avatar row: each profile's initial in a chip tinted to that profile's own accent. */
 @Composable
-private fun ProfileAvatarRow(profiles: List<String>, active: String?, onSwitch: (String) -> Unit) {
+internal fun ProfileAvatarRow(profiles: List<String>, active: String?, onSwitch: (String) -> Unit) {
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp),
     ) {

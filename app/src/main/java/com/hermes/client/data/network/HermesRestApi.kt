@@ -13,6 +13,8 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okio.buffer
+import okio.source
 
 class HermesApiException(val code: Int, message: String) : Exception(message)
 
@@ -371,4 +373,112 @@ class HermesRestApi(
             if (!resp.isSuccessful) throw HermesApiException(resp.code, "set active profile failed")
         }
     }
+
+    // --- Managed files --------------------------------------------------------------------
+    // Paths are passed through verbatim; the gateway enforces the locked root (403 outside it)
+    // and the credential denylist (403 on .env/config.yaml/auth.json/...), so those guarantees
+    // hold regardless of what this client asks for.
+
+    suspend fun listFiles(path: String? = null): FileListDto =
+        get("/api/files" + (path?.let { "?path=" + java.net.URLEncoder.encode(it, "UTF-8") } ?: ""))
+
+    suspend fun readFile(path: String): FileReadDto =
+        get("/api/files/read?path=" + java.net.URLEncoder.encode(path, "UTF-8"))
+
+    /** Write (or create) a file from raw bytes, sent as the data-URL the upload endpoint expects. */
+    suspend fun writeFile(path: String, bytes: ByteArray, mimeType: String = "text/plain"): Unit =
+        withContext(Dispatchers.IO) {
+            val b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+            val payload = buildJsonObject {
+                put("path", path)
+                put("data_url", "data:$mimeType;base64,$b64")
+                put("overwrite", true)
+            }.toString().toRequestBody("application/json".toMediaType())
+            okHttp.newCall(builder("/api/files/upload").post(payload).build()).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    throw HermesApiException(resp.code, resp.body?.string().orEmpty().ifBlank { "upload failed" })
+                }
+            }
+        }
+
+    suspend fun mkdir(path: String): Unit = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject { put("path", path) }
+            .toString().toRequestBody("application/json".toMediaType())
+        okHttp.newCall(builder("/api/files/mkdir").post(payload).build()).execute().use { resp ->
+            if (!resp.isSuccessful) throw HermesApiException(resp.code, "mkdir failed")
+        }
+    }
+
+    // --- Webhooks -------------------------------------------------------------------------
+
+    suspend fun webhooks(): WebhooksDto = get("/api/webhooks")
+
+    suspend fun setWebhookEnabled(name: String, enabled: Boolean): Unit = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject { put("enabled", enabled) }
+            .toString().toRequestBody("application/json".toMediaType())
+        okHttp.newCall(builder("/api/webhooks/$name/enabled").put(payload).build()).execute().use { resp ->
+            if (!resp.isSuccessful) throw HermesApiException(resp.code, "toggle webhook failed")
+        }
+    }
+
+    /**
+     * Rename a profile. For the default profile the gateway treats this as a presentation-only
+     * display_name and keeps the canonical id "default", so callers keying on the id stay valid.
+     * Note the gateway briefly stops to rename a non-default profile's directory.
+     */
+    suspend fun renameProfile(name: String, newName: String): Unit = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject { put("new_name", newName) }
+            .toString().toRequestBody("application/json".toMediaType())
+        okHttp.newCall(builder("/api/profiles/$name").patch(payload).build()).execute().use { resp ->
+            if (!resp.isSuccessful) {
+                throw HermesApiException(resp.code, resp.body?.string().orEmpty().ifBlank { "rename failed" })
+            }
+        }
+    }
+
+    /**
+     * Upload a file via the gateway's chunked multipart endpoint.
+     *
+     * The body streams from [openStream] rather than being buffered: the server accepts up to
+     * 100 MB, which would OOM a phone if read into a ByteArray first. OkHttp may re-send the body
+     * (redirect/retry), so [openStream] must return a fresh stream each call.
+     *
+     * The server writes to a sibling temp file and atomically renames, so a dropped connection
+     * cannot leave a half-written file in place of a good one.
+     */
+    suspend fun uploadFileStreaming(
+        destPath: String,
+        fileName: String,
+        mimeType: String,
+        contentLength: Long,
+        openStream: () -> java.io.InputStream,
+    ): Unit = withContext(Dispatchers.IO) {
+        val fileBody = object : okhttp3.RequestBody() {
+            override fun contentType() = mimeType.toMediaType()
+            override fun contentLength() = contentLength
+            override fun writeTo(sink: okio.BufferedSink) {
+                openStream().use { input -> sink.writeAll(input.source().buffer()) }
+            }
+        }
+        val multipart = okhttp3.MultipartBody.Builder()
+            .setType(okhttp3.MultipartBody.FORM)
+            .addFormDataPart("path", destPath)
+            .addFormDataPart("overwrite", "true")
+            .addFormDataPart("file", fileName, fileBody)
+            .build()
+        okHttp.newCall(builder("/api/files/upload-stream").post(multipart).build()).execute().use { resp ->
+            if (!resp.isSuccessful) {
+                val detail = resp.body?.string().orEmpty()
+                throw HermesApiException(
+                    resp.code,
+                    when (resp.code) {
+                        413 -> "File is too large (100 MB limit)"
+                        403 -> "Upload refused: outside the allowed folder"
+                        else -> detail.ifBlank { "Upload failed (${resp.code})" }
+                    },
+                )
+            }
+        }
+    }
+
 }

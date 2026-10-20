@@ -30,6 +30,8 @@ fun AppearanceScreen(
 ) {
     val mode by vm.themeMode.collectAsStateWithLifecycle()
     val technical by vm.toolCallTechnical.collectAsStateWithLifecycle()
+    val amber by vm.amberPalette.collectAsStateWithLifecycle()
+    val sound by vm.soundEffects.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -68,6 +70,51 @@ fun AppearanceScreen(
                         shape = SegmentedButtonDefaults.itemShape(i, options.size),
                     ) { Text(label) }
                 }
+            }
+
+            androidx.compose.material3.HorizontalDivider()
+            androidx.compose.foundation.layout.Row(
+                modifier = androidx.compose.ui.Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            ) {
+                androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.weight(1f)) {
+                    Text("Amber CRT palette", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Monochrome amber instead of phosphor green (dark mode).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                androidx.compose.material3.Switch(checked = amber, onCheckedChange = { vm.setAmberPalette(it) })
+            }
+            androidx.compose.material3.HorizontalDivider()
+            androidx.compose.foundation.layout.Row(
+                modifier = androidx.compose.ui.Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            ) {
+                androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.weight(1f)) {
+                    Text("Terminal sounds", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Synthesized blips on dictate, dispatch and errors.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                androidx.compose.material3.Switch(
+                    checked = sound,
+                    onCheckedChange = { on ->
+                        vm.setSoundEffects(on)
+                        // Preview the blip immediately on enable (the pref flow updates a beat later).
+                        if (on) {
+                            com.hermes.client.ui.theme.SoundFx.enabled = true
+                            com.hermes.client.ui.theme.SoundFx.blip()
+                        }
+                    },
+                )
             }
         }
     }

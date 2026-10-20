@@ -1,6 +1,6 @@
 package com.hermes.client.ui.nav
 
-private val TAB_ROUTES = setOf("sessions", "activity", "you")
+private val TAB_ROUTES = setOf("chat_tab", "sessions", "brain", "oneshot")
 
 /**
  * Map a `hermes://` URI string to an internal nav route, or null if it isn't a recognised link.

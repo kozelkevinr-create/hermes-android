@@ -146,6 +146,8 @@ dependencies {
     implementation(libs.markdown.m3)
     implementation(libs.zxing.embedded)
     implementation(libs.glance.appwidget)
+    implementation(libs.shizuku.api)
+    implementation(libs.shizuku.provider)
 
     // matrix-rust-sdk and the JVM half of its TLS verifier (needed for HTTPS without a private CA).
     implementation(libs.matrix.rust.sdk)

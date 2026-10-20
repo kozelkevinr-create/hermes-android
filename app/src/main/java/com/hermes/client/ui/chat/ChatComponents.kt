@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.DropdownMenu
@@ -43,6 +44,7 @@ import androidx.compose.runtime.withFrameNanos
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import androidx.compose.ui.Alignment
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -103,6 +105,9 @@ fun ChatMessageList(
         snapshotFlow { listState.layoutInfo.totalItemsCount }
             .filter { it >= state.messages.size }
             .first()
+        // Let late-measuring content (full-width markdown, code blocks, images) begin to lay out
+        // before the first scroll; the convergence loop below still chases any remaining growth.
+        kotlinx.coroutines.delay(120)
         // Mark landed before the convergence loop: if the user scrolls during the loop, scrollBy
         // loses the MutatePriority race and throws CancellationException, cancelling this effect.
         // Setting the flag first means an interrupted landing still ends in a consistent state and
@@ -114,7 +119,7 @@ fun ChatMessageList(
         // below — that catches late-measuring content without a fixed guess.
         var stableFrames = 0
         var guard = 0
-        while (guard++ < 90 && stableFrames < 3) {
+        while (guard++ < 180 && stableFrames < 4) {
             if (listState.canScrollForward) {
                 listState.scrollBy(100_000f)
                 stableFrames = 0
@@ -147,9 +152,16 @@ fun ChatMessageList(
         return
     }
 
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    // Show a jump button whenever there's content below the fold — both the manual escape hatch
+    // and the safety net for when the auto-land under-shoots on late-measuring markdown.
+    val showJumpToBottom by androidx.compose.runtime.remember {
+        androidx.compose.runtime.derivedStateOf { listState.canScrollForward }
+    }
+    Box(modifier.fillMaxSize()) {
     LazyColumn(
         state = listState,
-        modifier = modifier.fillMaxSize().padding(horizontal = 12.dp),
+        modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         // Key by position as well as id: the gateway reuses the model name as the
@@ -171,6 +183,23 @@ fun ChatMessageList(
                 onStopReading,
                 highlighted = index == highlightIndex,
             )
+        }
+    }
+        androidx.compose.animation.AnimatedVisibility(
+            visible = showJumpToBottom,
+            enter = androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.fadeOut(),
+            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+        ) {
+            androidx.compose.material3.SmallFloatingActionButton(
+                onClick = { scope.launch { listState.animateScrollToItem(lastIndex) } },
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            ) {
+                androidx.compose.material3.Icon(
+                    Icons.Rounded.KeyboardArrowDown,
+                    contentDescription = "Scroll to newest",
+                )
+            }
         }
     }
 }
@@ -289,6 +318,13 @@ private fun AssistantTurn(
             }
             if (msg.isStreaming && msg.text.isBlank() && msg.tools.isEmpty()) {
                 TypingIndicator()
+            } else if (msg.isStreaming && msg.text.isNotBlank()) {
+                // A terminal caret trailing the live output — the authentic "typewriter" feel,
+                // additive to the token streaming that already reveals text as it arrives.
+                com.hermes.client.ui.theme.BlinkingCursor(
+                    Modifier.padding(top = 2.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                )
             }
         }
         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {

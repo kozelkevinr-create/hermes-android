@@ -16,6 +16,7 @@ val LocalToolCallTechnical = compositionLocalOf { true }
 @Composable
 fun HermesTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
+    amber: Boolean = false,
     // Material You is opt-in and acts only as a neutral base — the per-profile accent still
     // wins for chrome. Off by default so the curated palette is the stable, screenshot-ready look.
     dynamicColor: Boolean = false,
@@ -27,6 +28,7 @@ fun HermesTheme(
     val colors = when {
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        darkTheme && amber -> HermesAmberDarkColors
         darkTheme -> HermesDarkColors
         else -> HermesLightColors
     }

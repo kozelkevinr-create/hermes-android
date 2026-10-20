@@ -12,6 +12,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class ShellViewModel @Inject constructor(
+    private val rest: com.hermes.client.data.network.HermesRestApi,
     private val profileManager: ProfileManager,
     private val accentStore: ProfileAccentStore,
     private val healthMonitor: com.hermes.client.data.network.GatewayHealthMonitor,
@@ -25,6 +26,24 @@ class ShellViewModel @Inject constructor(
     init { viewModelScope.launch { profileManager.refresh() } }
 
     fun switchProfile(name: String) = viewModelScope.launch { profileManager.switchTo(name) }
+
+    /** Last rename failure, surfaced by the Profiles screen. Null once a rename succeeds. */
+    private val _renameError = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    val renameError: StateFlow<String?> = _renameError
+
+    /**
+     * Rename [name] to [newName]. For the default profile the gateway stores this as a display
+     * name and keeps the id "default"; for others it renames the profile directory, which briefly
+     * restarts the gateway.
+     */
+    fun renameProfile(name: String, newName: String) = viewModelScope.launch {
+        _renameError.value = null
+        runCatching { rest.renameProfile(name, newName.trim()) }
+            .onSuccess { profileManager.refresh() }
+            .onFailure { _renameError.value = it.message ?: "Rename failed" }
+    }
+
+    fun clearRenameError() { _renameError.value = null }
 
     /** Set a custom accent colour for [profile] (persisted; overrides the auto-hashed hue). */
     fun setAccent(profile: String, argb: Int) = viewModelScope.launch { accentStore.setColor(profile, argb) }

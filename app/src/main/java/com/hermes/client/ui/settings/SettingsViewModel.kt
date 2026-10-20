@@ -21,8 +21,14 @@ class SettingsViewModel @Inject constructor(
         settings.themeMode.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ThemeMode.SYSTEM)
     val toolCallTechnical: StateFlow<Boolean> =
         settings.toolCallTechnical.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+    val amberPalette: StateFlow<Boolean> =
+        settings.amberPalette.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    val soundEffects: StateFlow<Boolean> =
+        settings.soundEffects.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     fun setThemeMode(mode: ThemeMode) = viewModelScope.launch { settings.setThemeMode(mode) }
+    fun setAmberPalette(on: Boolean) = viewModelScope.launch { settings.setAmberPalette(on) }
+    fun setSoundEffects(on: Boolean) = viewModelScope.launch { settings.setSoundEffects(on) }
     fun setToolCallTechnical(technical: Boolean) =
         viewModelScope.launch { settings.setToolCallTechnical(technical) }
 

@@ -11,8 +11,8 @@ class DeepLinkMapperTest {
         assertEquals("sessions", deepLinkRouteFor("hermes://tab/sessions"))
         assertEquals("gateway_sessions", deepLinkRouteFor("hermes://gateway/sessions"))
         assertNull(deepLinkRouteFor("hermes://gateway/other"))
-        assertEquals("activity", deepLinkRouteFor("hermes://tab/activity"))
-        assertEquals("you", deepLinkRouteFor("hermes://tab/you"))
+        assertEquals("brain", deepLinkRouteFor("hermes://tab/brain"))
+        assertEquals("oneshot", deepLinkRouteFor("hermes://tab/oneshot"))
     }
 
     @Test fun chat_id_maps() {

@@ -46,7 +46,6 @@ import com.hermes.client.ui.components.HealthStrip
 import com.hermes.client.ui.cron.CronDetailScreen
 import com.hermes.client.ui.cron.CronEditScreen
 import com.hermes.client.ui.cron.CronScreen
-import com.hermes.client.ui.management.ManagementScreen
 import com.hermes.client.ui.messaging.MessagingScreen
 import com.hermes.client.ui.messaging.MessagingSetupScreen
 import com.hermes.client.ui.models.ModelsScreen
@@ -61,13 +60,17 @@ import com.hermes.client.ui.settings.SettingsScreen
 import com.hermes.client.ui.setup.SetupScreen
 import com.hermes.client.ui.tools.AgentsToolsScreen
 import com.hermes.client.ui.usage.UsageScreen
+import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.Forum
+import androidx.compose.material.icons.rounded.Psychology
 
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
 
 private val TABS = listOf(
-    Tab("activity", "Home", Icons.Rounded.Home),
-    Tab("sessions", "Chats", Icons.AutoMirrored.Rounded.Chat),
-    Tab("you", "You", Icons.Rounded.Person),
+    Tab("chat_tab", "Chat", Icons.AutoMirrored.Rounded.Chat),
+    Tab("sessions", "Sessions", Icons.Rounded.Forum),
+    Tab("brain", "Brain", Icons.Rounded.Psychology),
+    Tab("oneshot", "Oneshot", Icons.Rounded.Bolt),
 )
 
 /**
@@ -88,7 +91,7 @@ private val TABS = listOf(
 @Composable
 fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsumed: () -> Unit = {}) {
     val nav = rememberNavController()
-    val start = if (hasConfig) "activity" else "setup"
+    val start = if (hasConfig) NavRoutes.CHAT_TAB else NavRoutes.SETUP
 
     // Guard the navigate: a hermes:// deep link is untrusted, and even the notification path could
     // carry a stale/unknown route — an unresolved route must be ignored, never crash.
@@ -102,6 +105,7 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
     val backStackEntry by nav.currentBackStackEntryAsState()
     val route = backStackEntry?.destination?.route
 
+    var showPalette by rememberSaveable { mutableStateOf(false) }
     val shellVm: ShellViewModel = hiltViewModel()
     val health by shellVm.health.collectAsStateWithLifecycle()
     var showHealthSheet by rememberSaveable { mutableStateOf(false) }
@@ -152,7 +156,7 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
                             selected = route == tab.route,
                             onClick = { switchTab(tab.route) },
                             icon = {
-                                if (tab.route == "you" && hasConfig && health.isUnhealthy()) {
+                                if (tab.route == "brain" && hasConfig && health.isUnhealthy()) {
                                     BadgedBox(badge = { Badge() }) {
                                         Icon(tab.icon, contentDescription = tab.label)
                                     }
@@ -184,7 +188,7 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
             composable(NavRoutes.SETUP) {
                 SetupScreen(
                     onSaved = {
-                        nav.navigate("activity") { popUpTo("setup") { inclusive = true } }
+                        nav.navigate(NavRoutes.CHAT_TAB) { popUpTo(NavRoutes.SETUP) { inclusive = true } }
                     },
                 )
             }
@@ -213,7 +217,68 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
                 )
             }
             composable(NavRoutes.ACTIVITY) { com.hermes.client.ui.activity.MissionControlScreen(onNavigate = push) }
-            composable(NavRoutes.YOU) { YouHubScreen(onNavigate = push) }
+            composable(NavRoutes.BRAIN) { BrainHubScreen(onNavigate = push, onOpenPalette = { showPalette = true }) }
+            // Chat tab opens straight into a new conversation rather than a hub — the common case
+            // is "I want to ask something now", not "browse what I asked before" (that's Sessions).
+            composable(NavRoutes.CHAT_TAB) {
+                com.hermes.client.ui.chat.ChatScreen(
+                    // "" is the new-conversation case the chat VM already understands.
+                    sessionId = "",
+                    onMenu = {},
+                    onUnauthorized = onUnauthorized,
+                )
+            }
+            composable(NavRoutes.ONESHOT) {
+                com.hermes.client.ui.oneshot.OneshotScreen(onOpenPalette = { showPalette = true })
+            }
+            composable(NavRoutes.NETOPS) {
+                com.hermes.client.ui.netops.NetOpsScreen(onBack = back, onTools = { push("nettools") })
+            }
+            composable(NavRoutes.NETTOOLS) {
+                com.hermes.client.ui.netops.NetToolsScreen(onBack = back)
+            }
+            composable(NavRoutes.WEBHOOKS) {
+                com.hermes.client.ui.webhooks.WebhooksScreen(onBack = back)
+            }
+            composable(NavRoutes.FILES) {
+                com.hermes.client.ui.files.FilesScreen(
+                    onBack = back,
+                    onOpenFile = { path ->
+                        nav.navigate("file_edit/" + java.net.URLEncoder.encode(path, "UTF-8"))
+                    },
+                )
+            }
+            // Files rooted at a specific directory (the Obsidian vault shortcut uses this).
+            composable(NavRoutes.FILES_AT) { entry ->
+                val raw = entry.arguments?.getString("path").orEmpty()
+                com.hermes.client.ui.files.FilesScreen(
+                    onBack = back,
+                    onOpenFile = { path ->
+                        nav.navigate("file_view/" + java.net.URLEncoder.encode(path, "UTF-8"))
+                    },
+                    startPath = java.net.URLDecoder.decode(raw, "UTF-8"),
+                    readOnly = true,
+                    // Can't climb above the vault root from the vault shortcut.
+                    boundaryPath = java.net.URLDecoder.decode(raw, "UTF-8"),
+                )
+            }
+            // Read-only viewer, used by the Obsidian vault so phone edits can't race Obsidian's
+            // own autosave or leave uncommitted changes in the vault's git repo.
+            composable(NavRoutes.FILE_VIEW) { entry ->
+                val raw = entry.arguments?.getString("path").orEmpty()
+                com.hermes.client.ui.files.FileEditorScreen(
+                    path = java.net.URLDecoder.decode(raw, "UTF-8"),
+                    onBack = back,
+                    readOnly = true,
+                )
+            }
+            composable(NavRoutes.FILE_EDIT) { entry ->
+                val raw = entry.arguments?.getString("path").orEmpty()
+                com.hermes.client.ui.files.FileEditorScreen(
+                    path = java.net.URLDecoder.decode(raw, "UTF-8"),
+                    onBack = back,
+                )
+            }
 
             // ---- Pushed screens (back arrow) ----
             composable(NavRoutes.ARCHIVED) {
@@ -292,12 +357,6 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
                 com.hermes.client.ui.settings.DiagnosticsScreen(onBack = { nav.popBackStack() })
             }
             composable(NavRoutes.SETTINGS_ABOUT) { AboutScreen(onBack = { nav.popBackStack() }) }
-            composable(NavRoutes.MANAGEMENT) {
-                ManagementScreen(
-                    onMenu = back,
-                    onNavigate = { dest -> nav.navigate(dest) { launchSingleTop = true } },
-                )
-            }
             composable(NavRoutes.SESSION_ADMIN) {
                 SessionAdminScreen(
                     onMenu = back,
@@ -314,6 +373,13 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
             health = health,
             onRecheck = { shellVm.recheckHealth() },
             onDismiss = { showHealthSheet = false },
+        )
+    }
+
+    if (showPalette) {
+        com.hermes.client.ui.components.CommandPalette(
+            onNavigate = { route -> nav.navigate(route) { launchSingleTop = true } },
+            onDismiss = { showPalette = false },
         )
     }
 }

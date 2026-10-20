@@ -18,6 +18,8 @@ class SettingsStore(private val context: Context) {
     private val toolDisplayKey = stringPreferencesKey("tool_call_display") // "product" | "technical"
     private val debugLoggingKey = booleanPreferencesKey("debug_logging")
     private val matrixEncryptedKey = booleanPreferencesKey("matrix_rooms_encrypted")
+    private val amberKey = booleanPreferencesKey("amber_palette")
+    private val soundKey = booleanPreferencesKey("sound_effects")
 
     val themeMode: Flow<ThemeMode> = context.settingsDataStore.data.map { prefs ->
         runCatching { ThemeMode.valueOf(prefs[themeKey] ?: "DARK") }.getOrDefault(ThemeMode.DARK)
@@ -34,6 +36,20 @@ class SettingsStore(private val context: Context) {
 
     suspend fun setToolCallTechnical(technical: Boolean) {
         context.settingsDataStore.edit { it[toolDisplayKey] = if (technical) "technical" else "product" }
+    }
+
+    /** Amber ("monochrome amber CRT") alt-palette instead of the default phosphor green. */
+    val amberPalette: Flow<Boolean> = context.settingsDataStore.data.map { it[amberKey] ?: false }
+
+    suspend fun setAmberPalette(on: Boolean) {
+        context.settingsDataStore.edit { it[amberKey] = on }
+    }
+
+    /** Synthesized terminal blips. Off by default. */
+    val soundEffects: Flow<Boolean> = context.settingsDataStore.data.map { it[soundKey] ?: false }
+
+    suspend fun setSoundEffects(on: Boolean) {
+        context.settingsDataStore.edit { it[soundKey] = on }
     }
 
     /** Diagnostic logging toggle (Settings → Diagnostics). Off by default. */

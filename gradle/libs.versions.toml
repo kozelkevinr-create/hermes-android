@@ -17,6 +17,7 @@ navigationCompose = "2.9.8"
 hilt = "2.59.2"
 hiltNavigation = "1.4.0"
 okhttp = "5.4.0"
+shizuku = "13.1.5"
 serialization = "1.11.0"
 coroutines = "1.11.0"
 datastore = "1.2.1"
@@ -76,6 +77,9 @@ zxing-embedded = { module = "com.journeyapps:zxing-android-embedded", version.re
 glance-appwidget = { module = "androidx.glance:glance-appwidget", version.ref = "glance" }
 matrix-rust-sdk = { module = "org.matrix.rustcomponents:sdk-android", version.ref = "matrixRustSdk" }
 rustls-platform-verifier = { module = "org.rustls:rustls-platform-verifier", version.ref = "rustlsPlatformVerifier" }
+
+shizuku-api = { module = "dev.rikka.shizuku:api", version.ref = "shizuku" }
+shizuku-provider = { module = "dev.rikka.shizuku:provider", version.ref = "shizuku" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

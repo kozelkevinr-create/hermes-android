@@ -13,7 +13,16 @@ object NavRoutes {
     const val SETUP = "setup"
     const val ACTIVITY = "activity"
     const val SESSIONS = "sessions"
-    const val YOU = "you"
+    const val CHAT_TAB = "chat_tab"
+    const val BRAIN = "brain"
+    const val ONESHOT = "oneshot"
+    const val NETOPS = "netops"
+    const val NETTOOLS = "nettools"
+    const val WEBHOOKS = "webhooks"
+    const val FILES = "files"
+    const val FILES_AT = "files_at/{path}"
+    const val FILE_VIEW = "file_view/{path}"
+    const val FILE_EDIT = "file_edit/{path}"
     const val GATEWAY_SESSIONS = "gateway_sessions"
     const val MATRIX_ROOM = "matrix_room/{roomId}"
     const val ARCHIVED = "archived"
@@ -37,7 +46,6 @@ object NavRoutes {
     const val SETTINGS_MATRIX = "settings_matrix"
     const val SETTINGS_DIAGNOSTICS = "settings_diagnostics"
     const val SETTINGS_ABOUT = "settings_about"
-    const val MANAGEMENT = "management"
     const val SESSION_ADMIN = "session_admin"
     const val AGENTS_TOOLS = "agents_tools"
 }
@@ -47,7 +55,16 @@ val NAV_ROUTES: List<String> = listOf(
     NavRoutes.SETUP,
     NavRoutes.ACTIVITY,
     NavRoutes.SESSIONS,
-    NavRoutes.YOU,
+    NavRoutes.CHAT_TAB,
+    NavRoutes.BRAIN,
+    NavRoutes.ONESHOT,
+    NavRoutes.NETOPS,
+    NavRoutes.NETTOOLS,
+    NavRoutes.WEBHOOKS,
+    NavRoutes.FILES,
+    NavRoutes.FILES_AT,
+    NavRoutes.FILE_VIEW,
+    NavRoutes.FILE_EDIT,
     NavRoutes.GATEWAY_SESSIONS,
     NavRoutes.MATRIX_ROOM,
     NavRoutes.ARCHIVED,
@@ -71,7 +88,6 @@ val NAV_ROUTES: List<String> = listOf(
     NavRoutes.SETTINGS_MATRIX,
     NavRoutes.SETTINGS_DIAGNOSTICS,
     NavRoutes.SETTINGS_ABOUT,
-    NavRoutes.MANAGEMENT,
     NavRoutes.SESSION_ADMIN,
     NavRoutes.AGENTS_TOOLS,
 )

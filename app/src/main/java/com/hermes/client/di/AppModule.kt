@@ -62,6 +62,12 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideBridgeConfigStore(@ApplicationContext context: Context):
+        com.hermes.client.data.auth.BridgeConfigStore =
+        com.hermes.client.data.auth.BridgeConfigStore(context)
+
+    @Provides
+    @Singleton
     fun provideCredentialStore(@ApplicationContext context: Context): CredentialStore =
         EncryptedCredentialStore(context)
 
@@ -130,6 +136,14 @@ object AppModule {
         json = json,
         configProvider = { store.load() },
     )
+
+    @Provides
+    @Singleton
+    fun provideFileUploader(
+        @ApplicationContext context: Context,
+        rest: HermesRestApi,
+    ): com.hermes.client.data.files.FileUploader =
+        com.hermes.client.data.files.FileUploader(context, rest)
 
     @Provides
     @Singleton
