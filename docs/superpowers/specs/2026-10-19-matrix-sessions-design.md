@@ -1,12 +1,12 @@
 # Matrix Sessions — Design
 
 **Date:** 2026-10-19
-**Status:** Phase 0 (spike), Phase 1a (account, client manager), Phase 2 (room list) and Phase 3 (read-only timeline, text sending, edits, read receipts, images) implemented; Phase 1b (release ABI splits) and phases 4-7 planned
-**Branch:** `feature/matrix-sessions`
+**Status:** Phases 0-7 implemented (Phase 1b, release ABI splits, still planned); integrated with `local-app-test` (see Navigation)
+**Branch:** `feature/matrix-sessions`, based on `origin/hermes-android-app` and merged with `origin/local-app-test` (the app as installed on the phone, v0.1.52 plus Files, NetOps, Webhooks, Brain, Oneshot)
 
 ## Goal
 
-The **Chats tab becomes a Matrix room list**, modelled on Element X: every room is a persistent chat with the Hermes bot. The user starts a new conversation either by creating a new room or by sending `/new` inside an existing one. The existing gateway session list moves to **Settings → Sessions** (`gateway_sessions`), because Mission Control and cron still rely on gateway sessions. The user chose this over an in-tab Matrix | Gateway toggle, which was the earlier plan and has been removed.
+The **Sessions tab becomes a Matrix room list**, modelled on Element X: every room is a persistent chat with the Hermes bot. The user starts a new conversation either by creating a new room or by sending `/new` inside an existing one. The existing gateway session list moves to **Settings → Sessions** (`gateway_sessions`), because Mission Control and cron still rely on gateway sessions. The user chose this over an in-tab Matrix | Gateway toggle, which was the earlier plan and has been removed.
 
 Encrypted and unencrypted rooms must both work, so the client uses the matrix-rust-sdk Kotlin bindings (`org.matrix.rustcomponents:sdk-android`, Apache-2.0) rather than a hand-rolled REST client.
 
@@ -22,7 +22,7 @@ Encrypted and unencrypted rooms must both work, so the client uses the matrix-ru
 |---|-------|-------|
 | 0 | Spike | SDK dependency, API notes, TLS/cleartext findings, debug-only test screen (this doc) |
 | 1 | Account setup | Homeserver, password login, bot MXID, CA import (always with `disableBuiltInRootCertificates()`), encrypted session storage, store passphrase in Android Keystore |
-| 2 | Room list (done) | Chats tab is the Matrix room list only; gateway sessions under Settings → Sessions |
+| 2 | Room list (done) | Sessions tab is the Matrix room list only; gateway sessions under Settings → Sessions |
 | 3 | Room timeline | Paginate, live diffs, edits, send text/images, read receipts |
 | 4 | Command wrapper | Palette of Hermes messaging commands (`/new /stop /model /usage /retry /undo /title /status /help /personality /approve /deny` ...); native New session -> `/new`, model picker -> `/model`, stop -> `/stop`; approval prompts get approve / always / deny buttons that send the matching reactions |
 | 5 | New-room sheet (done) | Encrypted toggle (default from a setting); create DM + invite bot |
@@ -135,7 +135,7 @@ Source: `client_builder.rs` in the SDK repo and strings in the shipped `libmatri
 
 ## Phase 2 (done)
 
-- **Chats tab is Matrix-only.** The user decided this, replacing the Matrix | Gateway toggle in the first plan. The tab shows the room list. With no Matrix account it shows the "Set up Matrix" empty state.
+- **Sessions tab (called Chats before the local-app-test merge) is Matrix-only.** The user decided this, replacing the Matrix | Gateway toggle in the first plan. The tab shows the room list. With no Matrix account it shows the "Set up Matrix" empty state.
 - **Gateway sessions:** Settings → Sessions opens `gateway_sessions`, the unchanged gateway list (grouping, search, pins, archive, Archived, session admin). Opening a session still goes to `chat/{id}`. The widget's "sessions" item and `hermes://gateway/sessions` open it too.
 - **Profiles:** `ShellViewModel` already refreshes the profile manager at startup, so `profileManager.active` is set for Mission Control, new chat and share.
 - **Rows:** `MatrixRoomSummary` gained `lastMessagePreview`, `lastMessageSender`, `lastActivityTs` and `avatarLetter`, filled from `Room.latestEvent()` (`LatestEventValue.Remote`/`Local`: `timestamp` is a ULong of epoch millis, `sender`, `profile`, `content`). Previews are plain text, one line, capped at 120 characters (`data/matrix/MessagePreview`). An undecryptable event shows "Encrypted message".
@@ -526,6 +526,35 @@ stopped (6h dataSync cap on API 35+) — needs UnifiedPush/FCM; no per-room mute
 modes not read); no reply action; no log of any message content.
 
 **Tests:** `MatrixNotificationMapperTest` 15; full suite after: 88 fixtures, 647 tests, 0 failures.
+
+## Navigation (after merging local-app-test)
+
+The feature branch originally targeted the stock hermes-android-app shell (Home · Chats · You). The
+user's real app is `local-app-test`, so that branch was merged in (`d950198`) and the shell now is:
+
+| Tab | Route | Content |
+|-----|-------|---------|
+| Chat | `chat_tab` | Opens straight into a new gateway conversation (start destination) |
+| Sessions | `sessions` | **Matrix room list** (this feature); tapping a room opens `matrix_room/{roomId}` |
+| Brain | `brain` | Hub: Skills, Memory, Files, Obsidian vault, MCP, Webhooks, Cron, Models, Messaging, NetOps, Profiles, Session admin, Agent activity, Usage, Settings |
+| Oneshot | `oneshot` | One-off dispatch |
+
+- **Replaced:** the You and Management hubs (Brain covers them) and the Home tab (Mission Control,
+  now Brain → Agent activity, route `activity`). The Home-tab cold-start convention in earlier
+  phase notes no longer applies; the app starts on Chat.
+- **Matrix account:** Brain → Settings → Matrix account (`settings_matrix`), which holds login,
+  Verify device and Recovery. Older phase notes that say "You tab → Settings" mean this path.
+- **Gateway sessions:** Settings → Sessions (`gateway_sessions`), unchanged.
+- **Routes:** every `composable(...)` uses a `NavRoutes` constant; `NavRoutes` gained `CHAT_TAB`,
+  `BRAIN`, `ONESHOT`, `NETOPS`, `NETTOOLS`, `WEBHOOKS`, `FILES`, `FILES_AT`, `FILE_VIEW`,
+  `FILE_EDIT` and lost `YOU`, `MANAGEMENT`. Deep links `hermes://tab/{chat_tab,sessions,brain,oneshot}`
+  and `hermes://gateway/sessions` resolve; the widget links to oneshot, sessions and brain.
+- **Notifications:** Phase 7 still applies unchanged; a Matrix notification tap routes to
+  `matrix_room/{roomId}` through the same `extra_route` path.
+- **Dependencies:** Shizuku 13.1.5 (from local-app-test) was added to
+  `gradle/verification-metadata.xml` (4 components, sha256 trusted on first download).
+- **Tests after merge:** 88 fixtures, 648 tests, 0 failures. Emulator: Chat start, Sessions room
+  list with unread badge, Brain hub verified; Files/NetOps/Webhooks/Oneshot only confirmed to compile.
 
 ## Out of scope for Phase 0
 
