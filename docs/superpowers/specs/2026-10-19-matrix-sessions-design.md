@@ -1,7 +1,7 @@
 # Matrix Sessions — Design
 
 **Date:** 2026-10-19
-**Status:** Phase 0 (spike), Phase 1a (account, client manager), Phase 2 (room list) and Phase 3a (read-only room timeline) implemented; Phase 1b (release ABI splits), 3b (send) and phases 4-7 planned
+**Status:** Phase 0 (spike), Phase 1a (account, client manager), Phase 2 (room list), Phase 3a (read-only room timeline) and Phase 3b (text sending, in-place retries) implemented; Phase 1b (release ABI splits), the rest of Phase 3 (edits, read receipts, sending images) and phases 4-7 planned
 **Branch:** `feature/matrix-sessions`
 
 ## Goal
@@ -145,7 +145,7 @@ Source: `client_builder.rs` in the SDK repo and strings in the shipped `libmatri
 
 ## Phase 3a (done)
 
-Read-only room timeline on `matrix_room/{roomId}`. Sending (Phase 3b) is deliberately absent: the screen ends in a disabled bar "Sending arrives in Phase 3b".
+Read-only room timeline on `matrix_room/{roomId}` (sending arrived in Phase 3b below; at the time the screen ended in a placeholder bar).
 
 - **Timeline model (`data/matrix/TimelineModels.kt`):** a pure `TimelineEntry` sealed type — `DayDivider(ts)`, `ReadMarker`, `Message(id, sender, senderName, isOwn, ts, body, isEdited, kind, sendState)`, `Utd(id, sender, ts)`, `StateEvent(id, ts, summary)`, `Unsupported(id)`. `kind` is `TEXT | NOTICE | EMOTE | IMAGE | FILE | OTHER`; `sendState` is `NOT_SENT_YET | SENDING_FAILED | SENT`; plus `PaginationState` (`Idle | Loading | AtStart`).
 - **Seam (`MatrixSdk` / `RustMatrixSdk`):** `MatrixClientHandle.openTimeline(roomId): MatrixTimelineHandle?` (null when the room is unknown). The handle exposes `items: StateFlow<List<TimelineEntry>>`, `suspend paginateBackwards(count): Boolean` (true at the start), `paginationState: StateFlow<PaginationState>` and `close()`. The Rust handle looks the room up with `Client.getRoom`, calls `room.timeline()`, `timeline.addListener(TimelineListener)` and `timeline.subscribeToBackPaginationStatus(PaginationStatusListener)`, then `timeline.paginateBackwards(UShort)` for the first page.
@@ -153,6 +153,44 @@ Read-only room timeline on `matrix_room/{roomId}`. Sending (Phase 3b) is deliber
 - **Clear handling (`data/matrix/TimelineRepaginator.kt`):** the SDK can emit `Clear` (and an empty `Reset`) a few seconds after open — an empty list is not final. `TimelineRepaginator` debounces those into a single `paginateBackwards` after the first page has been requested and stops for good once `paginateBackwards` reports the start, so it never loops. JVM-tested with a fake pager.
 - **Presentation (`ui/matrix/TimelinePresentation.kt`):** pure `timelineRows(...)` maps entries to `TimelineRow`s, collapsing consecutive messages from one sender within 5 minutes so the avatar and name show only on the first of a group. Day dividers read "Today"/"Yesterday"/"MMM d"; message times read "HH:mm"; state events become small centred rows; UTDs become a muted "Encrypted message" bubble; read markers and unsupported items are dropped.
 - **Screen (`MatrixRoomViewModel` + `MatrixRoomScreen`):** top bar shows the room name (from `MatrixClientManager.rooms`), a back button and a lock icon when encrypted. A `reverseLayout = true` `LazyColumn` keeps the newest message at the bottom, auto-pages backwards as the user scrolls near the top, shows a loading indicator while paging and "Beginning of conversation" at the start. Own messages go right (`primaryContainer`), others left with the SDK markdown renderer; "(edited)" marks edits; images/files show a "[image] filename" placeholder. States: loading, error with Retry, and "Matrix isn't set up" with a button to Settings → Matrix account. The timeline handle is closed in `onCleared`.
+
+## Phase 3b (done)
+
+Sending text from the composer, with in-place retry of failed local echoes. Two commits: e05ccdc
+("send text messages from the Matrix room screen") then 370913c ("retry failed Matrix sends in
+place and keep the draft until a send succeeds").
+
+- **Seam (`MatrixSdk` / `RustMatrixSdk`):** `MatrixTimelineHandle` gained three never-throwing,
+  boolean-returning calls (same `ffi.use(false)` pattern as the rest of the handle):
+  - `sendText(body)`: builds the content with the top-level `messageEventContentFromMarkdown(md)`
+    and `timeline.send(content)`; the content and the returned `SendHandle` are destroyed in
+    `finally`/`runCatching`; the body is never logged (user content).
+  - `retrySend(itemId)` / `abortSend(itemId)`: `timeline.retrySend(…, SendTarget.Event)` /
+    `timeline.abortSend(…, SendTarget.Event)` so a failed send is retried or discarded as the same
+    event, never sent twice.
+- **Event identity (`TimelineModels.kt`):** `EventOrTxnId` — a pure sealed copy of the SDK's
+  `EventOrTransactionId` (`Event(eventId)` / `Transaction(transactionId)`), mapped in both
+  directions by small `toItemId()` / `toSdk()` helpers. `TimelineEntry.Message` carries it as
+  `itemId` (null when unknown) so the UI can retry a failed echo in place.
+- **ViewModel (`MatrixRoomViewModel`):** the draft lives in a `draft: StateFlow<String>` (not in the
+  composable) so a failed send keeps the text. `send()` trims `updateDraft`'s value, ignores blank
+  input and overlapping sends (`_sending.compareAndSet(false, true)`), clears the draft with
+  `compareAndSet(raw, "")` only when the send is accepted — anything typed while the send was in
+  flight survives — and raises `sendFailed` on failure (cleared when the next send starts).
+  `retrySend(itemId)` / `abortSend(itemId)` call the handle and swallow the never-thrown failure.
+- **Screen (MatrixRoomScreen):** the Phase 3a disabled bar is replaced by a `MessageComposer`
+  (outlined field, IME Send action, send icon disabled while a send is in flight or the draft is
+  blank, "Couldn't send" banner), padded by the union of the IME and navigation-bar insets. Own
+  bubbles show a `SendStatus`: a clock while in flight, and a tappable "Not sent" label offering a
+  Retry / Delete menu once the echo has failed (the label is inert when `itemId` is null). Slash
+  commands are sent as-is for Hermes to parse.
+- **Presentation (`TimelinePresentation`):** `TimelineRow.Message` mirrors `sendState` and `itemId`
+  (Utd rows always carry `SENT`), so the bubble UI needs no SDK types.
+- **Tests:** `MatrixRoomViewModelTest` — trim + success, failure surfaced, blank ignored,
+  overlapping send ignored, success clears / failure keeps / overlapping send keeps the draft,
+  retry reuses the same item and never sends a copy, delete aborts the failed echo.
+  `TimelinePresentationTest` — send state and item id reach the row. The `MatrixTimelineHandle`
+  fakes in `MatrixClientManagerTest` implement the new methods.
 
 ## Out of scope for Phase 0
 
