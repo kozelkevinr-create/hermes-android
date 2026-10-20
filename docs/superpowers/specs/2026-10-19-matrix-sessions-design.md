@@ -1,7 +1,7 @@
 # Matrix Sessions — Design
 
 **Date:** 2026-10-19
-**Status:** Phase 0 (spike), Phase 1a (account, client manager), Phase 2 (room list), Phase 3a (read-only room timeline) and Phase 3b (text sending, in-place retries) implemented; Phase 1b (release ABI splits), the rest of Phase 3 (edits, read receipts, sending images) and phases 4-7 planned
+**Status:** Phase 0 (spike), Phase 1a (account, client manager), Phase 2 (room list) and Phase 3 (read-only timeline, text sending, edits, read receipts, images) implemented; Phase 1b (release ABI splits) and phases 4-7 planned
 **Branch:** `feature/matrix-sessions`
 
 ## Goal
@@ -191,6 +191,79 @@ place and keep the draft until a send succeeds").
   retry reuses the same item and never sends a copy, delete aborts the failed echo.
   `TimelinePresentationTest` — send state and item id reach the row. The `MatrixTimelineHandle`
   fakes in `MatrixClientManagerTest` implement the new methods.
+
+## Phase 3c (done)
+
+Editing own text messages in place (commit 0051055, "edit own Matrix text messages in place").
+
+- **Model / mapper:** `TimelineEntry.Message` gained `isEditable` (default false). The mapper sets it
+  from the SDK's `EventTimelineItem.isEditable` and only for `MessageType.Text` (attachment, poll
+  and caption edits wait for a later phase). `TimelineRow.Message` mirrors the flag.
+- **Seam:** `MatrixTimelineHandle.edit(itemId, newBody): Boolean` — the markdown new body goes
+  through `messageEventContentFromMarkdown` wrapped in `EditedContent.RoomMessage`; both the content
+  and the wrapper are destroyed in `finally`; the same `ffi.use(false)` never-throw pattern as the
+  other calls, and the body is never logged (user content).
+- **ViewModel:** `editing: StateFlow<EventOrTxnId?>` and `editFailed: StateFlow<Boolean>`.
+  `beginEdit(itemId, body)` prefills the composer (ignored while a send is in flight or already
+  editing), saving the draft to restore on cancel. `submitEdit()` trims, ignores blanks, reuses the
+  `_sending` gate (an edit and a text/img send can never run at once) and only clears the composer
+  draft when the timeline accepted the edit (`compareAndSet`, so anything typed during the submit
+  survives). `cancelEdit()` restores the pre-edit draft. `closeTimeline()` clears the editing state,
+  so it never spills across a reopened handle.
+- **Screen:** a long-press (`combinedClickable`) on an own editable bubble opens edit mode; the
+  composer then shows an "Editing message" header with Cancel, an "Edit message…" placeholder and
+  the send icon replaced by a check ("Save edit"). A failed edit surfaces "Couldn't save" (the
+  "Couldn't send" banner stays send-related only).
+- **Tests:** `MatrixRoomViewModelTest` (prefill, in-place edit + stop editing, failure keeps edit
+  and draft, blank ignored, cancel restores the draft, begin ignored while sending, editing ends
+  when the timeline closes) and `TimelinePresentationTest` (flag relay).
+
+## Phase 3d (done)
+
+Read receipts sent from the viewport (commit eb16a56, "send read receipts from the Matrix room
+viewport"). No UI of its own; receipts are public (`ReceiptType.READ`).
+
+- **Seam:** `MatrixTimelineHandle.sendReadReceipt(eventId: String) -> Boolean` →
+  `timeline.sendReadReceipt(ReceiptType.READ, eventId)`, never throws.
+- **Viewport logic:** `TimelinePresentation.latestVisibleEventId(rows, visibleKeys)` (pure) picks
+  the newest message row actually rendered whose identity is a remote event id; local echoes and
+  UTDs return null, so the newest visible item being an unsent own message suppresses nothing
+  weird — the next pass fixes the marker once it resolves.
+- **Tracker (`data/matrix/ReadReceipts.kt`):** pure `ReadReceiptTracker` — a receipt is wanted only
+  when the user is settled (not mid-scroll) on a different remote event than the last one sent, so
+  scrolling never spams and each newly-visible newest event sends exactly one; `reset()` for a new
+  timeline handle (called by `closeTimeline`).
+- **ViewModel / screen:** `onVisibleKeysChanged(keys, isScrollInProgress)` fed from a second
+  `snapshotFlow` over the LazyColumn's visible keys; best-effort send, failure swallowed.
+- **Tests:** `ReadReceiptsTest` (scrolled / settled / dedup / reset), `TimelinePresentationTest`
+  (newest-visible pick, local echo not target), `MatrixRoomViewModelTest` (one receipt for the
+  newest event, no repeat, none while scrolling).
+
+## Phase 3e (done)
+
+Sending images from the composer (commit 1ffbf8f, "send images from the Matrix room composer").
+Own bubbles already render "[image] filename" placeholders (Phase 2/3a mapping); this slice sends.
+
+- **Staging (`data/matrix/ImageStaging.kt` + `ImageStager.kt`):** the picker hands over a content
+  URI; `ImageStager.stage(uri)` (Hilt singleton, `Dispatchers.IO`, never throws) copies it into
+  `cacheDir/matrix-outbox`, resolves the display name (`OpenableColumns`, best effort) and the
+  mimetype. Pure helpers with JVM tests: `sanitizedImageFilename` (separators cut, punctuation
+  dropped, inner spaces kept, extension-only names fall back to `image.jpg`), `imageMimetype`
+  (resolver answer wins when it looks like an image, else the extension map), `imageExtensionFor`.
+  The staged copy is deleted after the attempt (staged during send via
+  `removeStaged`; a staging failure sends nothing).
+- **Seam:** `MatrixTimelineHandle.sendImage(path, filename, mimetype): Boolean` →
+  `timeline.sendImage(UploadParameters(UploadSource.File(path), …), null thumbnail,
+  ImageInfo(mimetype, …))`, `SendAttachmentJoinHandle.join()` awaited, the `ImageInfo` destroyed in
+  `finally`; `UploadSource`/`UploadParameters` are FFI value types (no destructor).
+- **ViewModel / screen:** `sendImage(uri)` shares the text `_sending` gate (one send of any kind at
+  a time) and surfaces failures through the existing `sendFailed` banner. The composer gained an
+  add-image button (`Icons.Rounded.AddPhotoAlternate`, hidden while editing) launching the
+  `GetContent` image picker, matching the CA-import picker pattern already in `MatrixAccountScreen`.
+- **Tests:** `ImageStagingTest` (sanitation/fallbacks/mime maps/filename-extends), VM tests
+  (staged-then-sent-then-removed, staging failure surfaces without sending, upload failure surfaces,
+  image send ignored while a text send is in flight). The resolver/copy I/O path itself needs an
+  on-device or emulator check.
 
 ## Out of scope for Phase 0
 
