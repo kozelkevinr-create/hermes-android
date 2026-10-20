@@ -43,6 +43,7 @@ import org.matrix.rustcomponents.sdk.RoomListEntriesListener
 import org.matrix.rustcomponents.sdk.RoomListEntriesUpdate
 import org.matrix.rustcomponents.sdk.RoomListEntriesWithDynamicAdaptersResult
 import org.matrix.rustcomponents.sdk.RoomListService
+import org.matrix.rustcomponents.sdk.ReceiptType
 import org.matrix.rustcomponents.sdk.SendTarget
 import org.matrix.rustcomponents.sdk.Session
 import org.matrix.rustcomponents.sdk.SlidingSyncVersion
@@ -410,6 +411,18 @@ private class RustTimelineHandle(
         } finally {
             runCatching { content.destroy() }
             edited?.let { runCatching { it.destroy() } }
+        }
+    }
+
+    override suspend fun sendReadReceipt(eventId: String): Boolean = ffi.use(false) {
+        try {
+            timeline.sendReadReceipt(ReceiptType.READ, eventId)
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            DebugLog.log("matrix-timeline", "read receipt failed: ${e.javaClass.simpleName}")
+            false
         }
     }
 

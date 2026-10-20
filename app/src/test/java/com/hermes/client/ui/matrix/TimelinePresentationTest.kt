@@ -6,6 +6,7 @@ import com.hermes.client.data.matrix.MessageSendState
 import com.hermes.client.data.matrix.TimelineEntry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
@@ -111,6 +112,28 @@ class TimelinePresentationTest {
             ),
         )
         assertEquals(listOf(true, true, false), rows.map { it.isEditable })
+    }
+
+    @Test
+    fun newest_visible_remote_event_is_picked_for_the_read_receipt() {
+        val old = msg("e1", "alice", nowMs).copy(itemId = EventOrTxnId.Event("evt-1"))
+        val newest = msg("e2", "alice", nowMs + 1_000).copy(itemId = EventOrTxnId.Event("evt-2"))
+        val rows = messages(listOf(old, newest))
+        val visibleOld = setOf(rows[0].id)
+        val visibleBoth = setOf(rows[0].id, rows[1].id)
+
+        assertEquals("evt-2", latestVisibleEventId(rows, visibleBoth))
+        // Only the older event rendered: the receipt catches up to it first.
+        assertEquals("evt-1", latestVisibleEventId(rows, visibleOld))
+        // Nothing on screen: no receipt.
+        assertNull(latestVisibleEventId(rows, emptySet()))
+    }
+
+    @Test
+    fun a_local_echo_only_newest_is_not_a_read_receipt_target() {
+        val echo = msg("e3", "alice", nowMs).copy(itemId = EventOrTxnId.Transaction("txn-7"))
+        val rows = messages(listOf(echo))
+        assertNull(latestVisibleEventId(rows, setOf(timelineRowKey(rows.single()))))
     }
 
     @Test

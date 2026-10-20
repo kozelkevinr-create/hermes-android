@@ -9,6 +9,8 @@ import com.hermes.client.data.matrix.MatrixRoomSummary
 import com.hermes.client.data.matrix.MatrixState
 import com.hermes.client.data.matrix.MatrixTimelineHandle
 import com.hermes.client.data.matrix.PaginationState
+import com.hermes.client.data.matrix.ReadReceiptSignal
+import com.hermes.client.data.matrix.ReadReceiptTracker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -72,6 +74,8 @@ class MatrixRoomViewModel internal constructor(
 
     /** True when the last send attempt failed; cleared when the next one starts. */
     val sendFailed: StateFlow<Boolean> = _sendFailed.asStateFlow()
+
+    private val receipts = ReadReceiptTracker()
 
     private val _draft = MutableStateFlow("")
 
@@ -166,6 +170,28 @@ class MatrixRoomViewModel internal constructor(
     /** Replaces the composer text. */
     fun updateDraft(text: String) {
         _draft.value = text
+    }
+
+    /**
+     * The layout told us which rows are on screen (their [timelineRowKey]s) and whether a scroll
+     * gesture is in progress. Fires at most one read receipt per remote event the user settles on.
+     */
+    fun onVisibleKeysChanged(keys: Set<String>, isScrollInProgress: Boolean) {
+        val s = _state.value
+        if (s !is RoomTimelineState.Ready) return
+        val eventId = latestVisibleEventId(s.rows, keys)
+        val signal = receipts.observe(eventId, isScrollInProgress)
+        if (signal !is ReadReceiptSignal.Read) return
+        viewModelScope.launch {
+            val handle = timeline ?: return@launch
+            try {
+                handle.sendReadReceipt(signal.eventId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Receipts are best effort; the tracker only redoes a skipped one on the next event.
+            }
+        }
     }
 
     /**
@@ -299,6 +325,7 @@ class MatrixRoomViewModel internal constructor(
         draftBeforeEdit = null
         _editFailed.value = false
         _sendFailed.value = false
+        receipts.reset()
     }
 
     override fun onCleared() {

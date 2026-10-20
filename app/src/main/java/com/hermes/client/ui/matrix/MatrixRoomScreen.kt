@@ -149,6 +149,7 @@ fun MatrixRoomScreen(roomId: String, onBack: () -> Unit, onSetup: () -> Unit, vm
                     onRetrySend = vm::retrySend,
                     onAbortSend = vm::abortSend,
                     onBeginEdit = vm::beginEdit,
+                    onVisibleKeysChanged = vm::onVisibleKeysChanged,
                 )
             }
         }
@@ -162,6 +163,7 @@ private fun TimelineContent(
     onRetrySend: (EventOrTxnId) -> Unit,
     onAbortSend: (EventOrTxnId) -> Unit,
     onBeginEdit: (EventOrTxnId, String) -> Unit,
+    onVisibleKeysChanged: (Set<String>, Boolean) -> Unit,
 ) {
     val listState = rememberLazyListState()
     val rows = state.rows
@@ -184,6 +186,17 @@ private fun TimelineContent(
             if (pagination.shouldLoadMore(signal.total, signal.lastVisibleIndex, signal.isScrollInProgress, signal.atStart)) {
                 onLoadMore()
             }
+        }
+    }
+
+    // Read receipts: what matters is which rows are actually rendered, not scroll position, so the
+    // visible keys (not just the last index) are passed to the tracker.
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            val info = listState.layoutInfo
+            info.visibleItemsInfo.map { it.key.toString() }.toSet() to listState.isScrollInProgress
+        }.collect { (keys, scrolling) ->
+            onVisibleKeysChanged(keys, scrolling)
         }
     }
 

@@ -47,6 +47,13 @@ private class FakeTimeline : MatrixTimelineHandle {
     var abortResult = true
     val edits = mutableListOf<Pair<EventOrTxnId, String>>()
     var editResult = true
+    val receiptsSent = mutableListOf<String>()
+    var receiptResult = true
+
+    override suspend fun sendReadReceipt(eventId: String): Boolean {
+        receiptsSent += eventId
+        return receiptResult
+    }
 
     override suspend fun edit(itemId: EventOrTxnId, newBody: String): Boolean {
         edits += itemId to newBody
@@ -490,4 +497,52 @@ class MatrixRoomViewModelTest {
         assertFalse(second.closed)
         assertEquals(listOf(roomId, roomId), opened)
     }
+
+    @Test
+    fun settling_the_viewport_on_the_newest_event_sends_one_read_receipt() = runTest {
+        val timeline = readyRoom()
+        timeline.setItems(
+            listOf(
+                msgEntry("\$abc-1", ts = 1).copy(itemId = EventOrTxnId.Event("\$abc-1")),
+                msgEntry("\$abc-2", ts = 2).copy(itemId = EventOrTxnId.Event("\$abc-2")),
+            ),
+        )
+        val vm = vm()
+        val ready = vm.state.value as RoomTimelineState.Ready
+        val keys = ready.rows.map { timelineRowKey(it) }.toSet()
+
+        vm.onVisibleKeysChanged(keys, isScrollInProgress = false)
+        advanceUntilIdle()
+        assertEquals(listOf("\$abc-2"), timeline.receiptsSent)
+
+        vm.onVisibleKeysChanged(keys, isScrollInProgress = false)
+        advanceUntilIdle()
+        assertEquals(listOf("\$abc-2"), timeline.receiptsSent)
+    }
+
+    @Test
+    fun scrolling_does_not_send_read_receipts() = runTest {
+        val timeline = readyRoom()
+        timeline.setItems(listOf(msgEntry("\$abc-1", ts = 1).copy(itemId = EventOrTxnId.Event("\$abc-1"))))
+        val vm = vm()
+        val ready = vm.state.value as RoomTimelineState.Ready
+        val key = timelineRowKey(ready.rows.last())
+
+        vm.onVisibleKeysChanged(setOf(key), isScrollInProgress = true)
+        advanceUntilIdle()
+        assertTrue(timeline.receiptsSent.isEmpty())
+    }
+
+    /** Own-viewpoint incoming message with the given remote event id as its row id. */
+    private fun msgEntry(id: String, ts: Long) = TimelineEntry.Message(
+        id = id,
+        sender = "@bot:example.test",
+        senderName = "Bot",
+        isOwn = false,
+        ts = ts,
+        body = "hi",
+        isEdited = false,
+        kind = MessageKind.TEXT,
+        sendState = MessageSendState.SENT,
+    )
 }

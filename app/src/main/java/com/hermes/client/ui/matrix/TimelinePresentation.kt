@@ -155,6 +155,22 @@ private fun messageRow(
 private fun isSameGroup(sender: String, ts: Long, lastSender: String?, lastTs: Long?): Boolean =
     lastSender == sender && lastTs != null && ts >= lastTs && ts - lastTs <= GROUP_WINDOW_MS
 
+/**
+ * The event id a read receipt should point at for the current viewport: the newest message row the
+ * user has fully rendered, provided it has a remote event id (local echoes and undecryptable events
+ * have none, so nothing is sent while one of those is the newest visible). Rows are chronological;
+ * visibleKeys is the set of LazyColumn keys (see [timelineRowKey]) of the rows laid out on screen.
+ * Pure.
+ */
+fun latestVisibleEventId(rows: List<TimelineRow>, visibleKeys: Set<String>): String? {
+    for (row in rows.asReversed()) {
+        if (row !is TimelineRow.Message) continue
+        if (row.id !in visibleKeys) continue
+        return (row.itemId as? EventOrTxnId.Event)?.eventId
+    }
+    return null
+}
+
 /** Stable LazyColumn key for a row. Day dividers key by timestamp so two dividers with the same
  *  label ("Oct 3" in two different years) stay distinct; events key by their SDK id. */
 fun timelineRowKey(row: TimelineRow): String = when (row) {

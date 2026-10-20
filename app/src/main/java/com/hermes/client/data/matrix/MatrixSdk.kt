@@ -71,6 +71,9 @@ interface MatrixTimelineHandle {
     /** Edits [itemId]'s text message to the markdown [newBody]; false when it could not be applied. Never throws. */
     suspend fun edit(itemId: EventOrTxnId, newBody: String): Boolean
 
+    /** Sends a public read receipt for the remote event id [eventId]; false when it was rejected. Never throws. */
+    suspend fun sendReadReceipt(eventId: String): Boolean
+
     val paginationState: StateFlow<PaginationState>
 
     /** Cancels subscriptions and destroys every SDK object this handle holds. Idempotent. */
