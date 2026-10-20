@@ -114,7 +114,9 @@ class MatrixRoomViewModelTest {
     @Before fun setUp() { Dispatchers.setMain(UnconfinedTestDispatcher()) }
     @After fun tearDown() { Dispatchers.resetMain() }
 
-    private fun vm(): MatrixRoomViewModel {
+    private fun vm(
+        loadCommands: suspend () -> List<Pair<String, String>> = { emptyList() },
+    ): MatrixRoomViewModel {
         opened.clear()
         return MatrixRoomViewModel(
             roomId,
@@ -131,6 +133,7 @@ class MatrixRoomViewModelTest {
             removeStaged = { staged ->
                 stagedPathsRemoved += staged.path
             },
+            loadCommands = loadCommands,
         )
     }
 
@@ -641,5 +644,40 @@ class MatrixRoomViewModelTest {
 
         gate.complete(Unit)
         advanceUntilIdle()
+    }
+
+    // ---- command catalog (palette source) ----
+
+    @Test
+    fun the_command_catalog_loads_when_the_room_opens() = runTest {
+        val timeline = readyRoom()
+        val vm = vm(loadCommands = { listOf("/new" to "Start a new session", "/model" to "Switch model") })
+        advanceUntilIdle()
+
+        assertTrue(vm.state.value is RoomTimelineState.Ready)
+        assertEquals(
+            listOf(CommandEntry("/new", "Start a new session"), CommandEntry("/model", "Switch model")),
+            vm.commands.value,
+        )
+    }
+
+    @Test
+    fun a_failing_catalog_load_is_tolerated_and_leaves_no_palette() = runTest {
+        readyRoom()
+        val vm = vm(loadCommands = { error("socket closed") })
+        advanceUntilIdle()
+
+        // The timeline still works; the palette just stays empty.
+        assertTrue(vm.state.value is RoomTimelineState.Ready)
+        assertEquals(emptyList<CommandEntry>(), vm.commands.value)
+    }
+
+    @Test
+    fun blank_command_names_are_dropped() = runTest {
+        readyRoom()
+        val vm = vm(loadCommands = { listOf("  " to "junk", "/new" to "New") })
+        advanceUntilIdle()
+
+        assertEquals(listOf(CommandEntry("/new", "New")), vm.commands.value)
     }
 }

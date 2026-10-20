@@ -13,6 +13,7 @@ import com.hermes.client.data.matrix.PaginationState
 import com.hermes.client.data.matrix.ReadReceiptSignal
 import com.hermes.client.data.matrix.ReadReceiptTracker
 import com.hermes.client.data.matrix.StagedImage
+import com.hermes.client.data.repository.ChatRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -52,12 +53,14 @@ class MatrixRoomViewModel internal constructor(
     private val openTimeline: suspend (String) -> MatrixTimelineHandle?,
     private val stageImage: suspend (String) -> StagedImage?,
     private val removeStaged: suspend (StagedImage) -> Unit,
+    private val loadCommands: suspend () -> List<Pair<String, String>> = { emptyList() },
 ) : ViewModel() {
 
     @Inject constructor(
         manager: MatrixClientManager,
         savedStateHandle: SavedStateHandle,
         imageStager: ImageStager,
+        chatRepository: ChatRepository,
     ) : this(
         roomId = savedStateHandle.get<String>("roomId") ?: "",
         matrix = manager.state,
@@ -65,6 +68,13 @@ class MatrixRoomViewModel internal constructor(
         openTimeline = { manager.openTimeline(it) },
         stageImage = { imageStager.stage(it) },
         removeStaged = { imageStager.delete(it) },
+        loadCommands = {
+            // Cold-start parity with the share path: no screen has opened the gateway socket yet,
+            // so the catalog RPC would block forever on its ready-gate. connect() is idempotent.
+            // Failure still surfaces as an empty palette (raw commands always send as text).
+            chatRepository.connect()
+            chatRepository.commandsCatalog()
+        },
     )
 
     /** The room's name and encryption, for the top bar; null while the room list is empty. */
@@ -94,6 +104,16 @@ class MatrixRoomViewModel internal constructor(
      * ignored send never clears it.
      */
     val draft: StateFlow<String> = _draft.asStateFlow()
+
+    private val _commands = MutableStateFlow<List<CommandEntry>>(emptyList())
+
+    /**
+     * The Hermes slash-command catalog for the composer palette, fetched from the gateway's
+     * commands.catalog RPC (see [ChatRepository.commandsCatalog]) on each room open, best-effort:
+     * a gateway that is offline or errors leaves the list empty, which just means no palette —
+     * raw slash commands always go out as text messages for the bot to parse.
+     */
+    val commands: StateFlow<List<CommandEntry>> = _commands.asStateFlow()
 
     private val _editing = MutableStateFlow<EventOrTxnId?>(null)
 
@@ -133,6 +153,7 @@ class MatrixRoomViewModel internal constructor(
     private fun open() {
         closeTimeline()
         _state.value = RoomTimelineState.Opening
+        loadCommandCatalog()
         collectJob = viewModelScope.launch {
             val handle = try {
                 openTimeline(roomId)
@@ -357,6 +378,21 @@ class MatrixRoomViewModel internal constructor(
     /** Re-opens the timeline after a failure. */
     fun retry() {
         if (_state.value is RoomTimelineState.Failed) open()
+    }
+
+    /** Refreshes the command catalog; a failure (gateway offline) keeps the list empty. */
+    private fun loadCommandCatalog() {
+        viewModelScope.launch {
+            _commands.value = try {
+                loadCommands()
+                    .filter { (name, _) -> name.isNotBlank() }
+                    .map { (name, desc) -> CommandEntry(name, desc) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
     }
 
     private fun closeTimeline() {

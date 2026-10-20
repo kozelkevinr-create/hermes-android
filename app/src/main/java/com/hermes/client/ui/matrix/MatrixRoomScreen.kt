@@ -95,6 +95,7 @@ fun MatrixRoomScreen(roomId: String, onBack: () -> Unit, onSetup: () -> Unit, vm
     val draft by vm.draft.collectAsStateWithLifecycle()
     val editing by vm.editing.collectAsStateWithLifecycle()
     val editFailed by vm.editFailed.collectAsStateWithLifecycle()
+    val commands by vm.commands.collectAsStateWithLifecycle()
     val name = room?.name ?: roomId
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) vm.sendImage(uri.toString())
@@ -150,14 +151,27 @@ fun MatrixRoomScreen(roomId: String, onBack: () -> Unit, onSetup: () -> Unit, vm
                     message = s.message,
                     onRetry = { vm.retry() },
                 )
-                is RoomTimelineState.Ready -> TimelineContent(
-                    s,
-                    vm::loadMore,
-                    onRetrySend = vm::retrySend,
-                    onAbortSend = vm::abortSend,
-                    onBeginEdit = vm::beginEdit,
-                    onVisibleKeysChanged = vm::onVisibleKeysChanged,
-                )
+                is RoomTimelineState.Ready -> {
+                    // Slash-command palette: while the draft composes a "/word", the timeline is
+                    // replaced by the matching command picker (except in edit mode), mirroring the
+                    // gateway chat. Sending the finished command is unchanged: it goes as text.
+                    val matches = filterCommands(commands, commandPaletteQuery(draft))
+                        .takeIf { editing == null } ?: emptyList()
+                    if (matches.isNotEmpty()) {
+                        CommandPalette(matches.map { it.name to it.description }) { name ->
+                            vm.updateDraft(commandDraft(name))
+                        }
+                    } else {
+                        TimelineContent(
+                            s,
+                            vm::loadMore,
+                            onRetrySend = vm::retrySend,
+                            onAbortSend = vm::abortSend,
+                            onBeginEdit = vm::beginEdit,
+                            onVisibleKeysChanged = vm::onVisibleKeysChanged,
+                        )
+                    }
+                }
             }
         }
     }
@@ -248,6 +262,26 @@ private fun CentredLabel(text: String) {
         textAlign = TextAlign.Center,
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
     )
+}
+
+/** Full-area command picker replacing the timeline while a slash word is being composed. */
+@Composable
+private fun CommandPalette(matches: List<Pair<String, String>>, onSelect: (String) -> Unit) {
+    Text(
+        "COMMANDS",
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp),
+    )
+    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+        items(matches, key = { it.first }) { (name, desc) ->
+            androidx.compose.material3.ListItem(
+                headlineContent = { Text(name) },
+                supportingContent = { if (desc.isNotBlank()) Text(desc) },
+                modifier = Modifier.clickable { onSelect(name) },
+            )
+        }
+    }
 }
 
 @Composable
