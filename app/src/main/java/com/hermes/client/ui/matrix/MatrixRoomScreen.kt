@@ -37,6 +37,7 @@ import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -44,11 +45,16 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -96,7 +102,10 @@ fun MatrixRoomScreen(roomId: String, onBack: () -> Unit, onSetup: () -> Unit, vm
     val editing by vm.editing.collectAsStateWithLifecycle()
     val editFailed by vm.editFailed.collectAsStateWithLifecycle()
     val commands by vm.commands.collectAsStateWithLifecycle()
+    val picker by vm.modelPicker.collectAsStateWithLifecycle()
     val name = room?.name ?: roomId
+    val ready = state is RoomTimelineState.Ready
+    var quickActionsOpen by remember { mutableStateOf(false) }
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) vm.sendImage(uri.toString())
     }
@@ -116,6 +125,41 @@ fun MatrixRoomScreen(roomId: String, onBack: () -> Unit, onSetup: () -> Unit, vm
                             contentDescription = "Encrypted",
                             tint = AccentChrome.onBar,
                             modifier = Modifier.padding(end = 16.dp),
+                        )
+                    }
+                    // Native hooks for the Hermes commands: New session, stop, model picker.
+                    // Over Matrix they are sent as their slash commands for the bot to parse.
+                    IconButton(onClick = { quickActionsOpen = true }, enabled = ready) {
+                        Icon(
+                            Icons.Rounded.MoreVert,
+                            contentDescription = "Quick actions",
+                            tint = AccentChrome.onBar,
+                        )
+                    }
+                    DropdownMenu(expanded = quickActionsOpen, onDismissRequest = { quickActionsOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text("New session") },
+                            onClick = {
+                                quickActionsOpen = false
+                                vm.sendCommand("/new")
+                            },
+                            enabled = ready && !sending,
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Stop") },
+                            onClick = {
+                                quickActionsOpen = false
+                                vm.sendCommand("/stop")
+                            },
+                            enabled = ready && !sending,
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Choose model…") },
+                            onClick = {
+                                quickActionsOpen = false
+                                vm.openModelPicker()
+                            },
+                            enabled = ready,
                         )
                     }
                 },
@@ -170,6 +214,75 @@ fun MatrixRoomScreen(roomId: String, onBack: () -> Unit, onSetup: () -> Unit, vm
                             onBeginEdit = vm::beginEdit,
                             onVisibleKeysChanged = vm::onVisibleKeysChanged,
                         )
+                    }
+                }
+            }
+        }
+    }
+
+    if (picker.open) {
+        ModelPickerSheet(
+            picker,
+            onPick = vm::selectModel,
+            onRetry = {
+                vm.dismissModelPicker()
+                vm.openModelPicker()
+            },
+            onDismiss = vm::dismissModelPicker,
+        )
+    }
+}
+
+/** The quick actions' model picker: providers from the gateway, models under each provider. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ModelPickerSheet(
+    picker: ModelPickerUi,
+    onPick: (provider: String, model: String) -> Unit,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 16.dp)) {
+            Text(
+                "Choose a model",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+            when {
+                picker.loading -> CircularProgressIndicator(Modifier.padding(vertical = 24.dp))
+                picker.failed -> {
+                    Text(
+                        "Couldn't load the model list.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                    TextButton(onClick = onRetry) { Text("Retry") }
+                }
+                picker.providers.isEmpty() ->
+                    Text(
+                        "No models available.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                else -> LazyColumn(Modifier.height(400.dp)) {
+                    picker.providers.forEach { provider ->
+                        item(key = "provider-${provider.slug}") {
+                            Text(
+                                provider.name ?: provider.slug,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 12.dp, bottom = 2.dp, start = 4.dp),
+                            )
+                        }
+                        items(provider.models, key = { "${provider.slug}:$it" }) { model ->
+                            ListItem(
+                                headlineContent = { Text(model) },
+                                modifier = Modifier.clickable { onPick(provider.slug, model) },
+                            )
+                        }
                     }
                 }
             }

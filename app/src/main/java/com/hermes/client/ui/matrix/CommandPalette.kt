@@ -34,3 +34,11 @@ fun filterCommands(commands: List<CommandEntry>, query: String?): List<CommandEn
  *  space so the next keystroke starts an argument (or a plain Send fires the bare command). */
 fun commandDraft(name: String): String =
     (if (name.startsWith("/")) name else "/$name") + " "
+
+/**
+ * The wire string the gateway chat sends for a SESSION-scoped model switch ("/model <model>
+ * --provider <provider> --session"); note the model comes first. The bot parses the identical
+ * text message, so the room's model picker sends exactly this string.
+ */
+fun modelCommand(provider: String, model: String): String =
+    "/model $model --provider $provider --session"

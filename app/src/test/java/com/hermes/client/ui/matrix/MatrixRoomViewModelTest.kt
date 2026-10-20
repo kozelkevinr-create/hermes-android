@@ -9,6 +9,7 @@ import com.hermes.client.data.matrix.MessageSendState
 import com.hermes.client.data.matrix.PaginationState
 import com.hermes.client.data.matrix.StagedImage
 import com.hermes.client.data.matrix.TimelineEntry
+import com.hermes.client.data.network.ModelProviderDto
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -116,6 +117,7 @@ class MatrixRoomViewModelTest {
 
     private fun vm(
         loadCommands: suspend () -> List<Pair<String, String>> = { emptyList() },
+        loadProviders: suspend () -> List<ModelProviderDto> = { emptyList() },
     ): MatrixRoomViewModel {
         opened.clear()
         return MatrixRoomViewModel(
@@ -134,6 +136,7 @@ class MatrixRoomViewModelTest {
                 stagedPathsRemoved += staged.path
             },
             loadCommands = loadCommands,
+            loadProviders = loadProviders,
         )
     }
 
@@ -679,5 +682,135 @@ class MatrixRoomViewModelTest {
         advanceUntilIdle()
 
         assertEquals(listOf(CommandEntry("/new", "New")), vm.commands.value)
+    }
+
+    // ---- native quick actions: sendCommand ----
+
+    @Test
+    fun a_quick_action_sends_its_slash_command_as_text_without_touching_the_draft() = runTest {
+        val timeline = readyRoom()
+        val vm = vm()
+        vm.updateDraft("keep me")
+        vm.sendCommand("/new")
+        advanceUntilIdle()
+
+        assertEquals(listOf("/new"), timeline.sent)
+        assertEquals("keep me", vm.draft.value)
+        assertFalse(vm.sending.value)
+        assertFalse(vm.sendFailed.value)
+    }
+
+    @Test
+    fun a_quick_action_while_a_send_is_in_flight_is_dropped() = runTest {
+        val timeline = readyRoom()
+        val vm = vm()
+        val gate = CompletableDeferred<Unit>()
+        timeline.sendGate = gate
+
+        vm.sendCommand("/new")
+        runCurrent()
+        assertTrue(vm.sending.value)
+
+        vm.sendCommand("/stop")
+        runCurrent()
+        assertEquals(listOf("/new"), timeline.sent)
+
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertFalse(vm.sending.value)
+    }
+
+    @Test
+    fun a_failed_quick_action_send_surfaces_send_failed() = runTest {
+        val timeline = readyRoom()
+        timeline.sendResult = false
+        val vm = vm()
+
+        vm.sendCommand("/stop")
+        advanceUntilIdle()
+
+        assertTrue(vm.sendFailed.value)
+        assertFalse(vm.sending.value)
+    }
+
+    @Test
+    fun send_command_only_sends_slash_commands() = runTest {
+        val timeline = readyRoom()
+        val vm = vm()
+
+        vm.sendCommand("hello")
+        vm.sendCommand("   ")
+        advanceUntilIdle()
+
+        assertTrue(timeline.sent.isEmpty())
+    }
+
+    // ---- native quick actions: model picker ----
+
+    private val providers = listOf(
+        ModelProviderDto(slug = "openrouter", name = "OpenRouter", models = listOf("fast", "big")),
+        ModelProviderDto(slug = "local", models = listOf("qwen")),
+    )
+
+    @Test
+    fun the_model_picker_loads_providers_on_open() = runTest {
+        readyRoom()
+        val vm = vm(loadProviders = { providers })
+
+        vm.openModelPicker()
+        advanceUntilIdle()
+
+        assertTrue(vm.modelPicker.value.open)
+        assertFalse(vm.modelPicker.value.loading)
+        assertEquals(providers, vm.modelPicker.value.providers)
+    }
+
+    @Test
+    fun a_failed_provider_load_is_surfaced_and_can_be_retried() = runTest {
+        var failing = true
+        readyRoom()
+        val vm = vm(loadProviders = { if (failing) error("down") else providers })
+
+        vm.openModelPicker()
+        advanceUntilIdle()
+        assertTrue(vm.modelPicker.value.failed)
+
+        failing = false
+        vm.dismissModelPicker()
+        vm.openModelPicker()
+        advanceUntilIdle()
+        assertEquals(providers, vm.modelPicker.value.providers)
+        assertFalse(vm.modelPicker.value.failed)
+    }
+
+    @Test
+    fun a_reopened_picker_reuses_loaded_providers_without_refetching() = runTest {
+        var calls = 0
+        readyRoom()
+        val vm = vm(loadProviders = { calls++; providers })
+
+        vm.openModelPicker()
+        advanceUntilIdle()
+        vm.dismissModelPicker()
+        vm.openModelPicker()
+        advanceUntilIdle()
+
+        assertEquals(1, calls)
+        assertTrue(vm.modelPicker.value.open)
+        assertEquals(providers, vm.modelPicker.value.providers)
+    }
+
+    @Test
+    fun picking_a_model_sends_the_session_scoped_command_and_closes_the_sheet() = runTest {
+        val timeline = readyRoom()
+        val vm = vm(loadProviders = { providers })
+
+        vm.openModelPicker()
+        advanceUntilIdle()
+        vm.selectModel("openrouter", "fast")
+        advanceUntilIdle()
+
+        assertEquals(listOf("/model fast --provider openrouter --session"), timeline.sent)
+        assertFalse(vm.modelPicker.value.open)
     }
 }

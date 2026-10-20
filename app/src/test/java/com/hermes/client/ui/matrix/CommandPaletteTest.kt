@@ -83,4 +83,11 @@ class CommandPaletteTest {
         assertEquals("/model ", commandDraft("model"))
         assertEquals("/stop ", commandDraft("/stop"))
     }
+
+    @Test
+    fun model_command_pins_the_gateway_wire_format() {
+        // Same string the gateway chat sends for a SESSION-scope switch; the model comes first.
+        assertEquals("/model fast --provider openrouter --session", modelCommand("openrouter", "fast"))
+        assertEquals("/model m --provider /p/ --session", modelCommand("/p/", "m"))
+    }
 }

@@ -13,7 +13,9 @@ import com.hermes.client.data.matrix.PaginationState
 import com.hermes.client.data.matrix.ReadReceiptSignal
 import com.hermes.client.data.matrix.ReadReceiptTracker
 import com.hermes.client.data.matrix.StagedImage
+import com.hermes.client.data.network.ModelProviderDto
 import com.hermes.client.data.repository.ChatRepository
+import com.hermes.client.data.repository.ModelRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -44,6 +46,14 @@ sealed interface RoomTimelineState {
     ) : RoomTimelineState
 }
 
+/** State of the model picker sheet (quick actions → "Choose model…"). */
+data class ModelPickerUi(
+    val open: Boolean = false,
+    val loading: Boolean = false,
+    val providers: List<ModelProviderDto> = emptyList(),
+    val failed: Boolean = false,
+)
+
 /** Drives one room timeline: opens it, folds its items to rows, and pages backwards on demand. */
 @HiltViewModel
 class MatrixRoomViewModel internal constructor(
@@ -54,6 +64,7 @@ class MatrixRoomViewModel internal constructor(
     private val stageImage: suspend (String) -> StagedImage?,
     private val removeStaged: suspend (StagedImage) -> Unit,
     private val loadCommands: suspend () -> List<Pair<String, String>> = { emptyList() },
+    private val loadProviders: suspend () -> List<ModelProviderDto> = { emptyList() },
 ) : ViewModel() {
 
     @Inject constructor(
@@ -61,6 +72,7 @@ class MatrixRoomViewModel internal constructor(
         savedStateHandle: SavedStateHandle,
         imageStager: ImageStager,
         chatRepository: ChatRepository,
+        modelRepository: ModelRepository,
     ) : this(
         roomId = savedStateHandle.get<String>("roomId") ?: "",
         matrix = manager.state,
@@ -75,6 +87,7 @@ class MatrixRoomViewModel internal constructor(
             chatRepository.connect()
             chatRepository.commandsCatalog()
         },
+        loadProviders = { modelRepository.providers() },
     )
 
     /** The room's name and encryption, for the top bar; null while the room list is empty. */
@@ -114,6 +127,11 @@ class MatrixRoomViewModel internal constructor(
      * raw slash commands always go out as text messages for the bot to parse.
      */
     val commands: StateFlow<List<CommandEntry>> = _commands.asStateFlow()
+
+    private val _modelPicker = MutableStateFlow(ModelPickerUi())
+
+    /** The quick actions' model picker: providers fetched from the gateway's REST API on open. */
+    val modelPicker: StateFlow<ModelPickerUi> = _modelPicker.asStateFlow()
 
     private val _editing = MutableStateFlow<EventOrTxnId?>(null)
 
@@ -235,17 +253,33 @@ class MatrixRoomViewModel internal constructor(
         val body = raw.trim()
         if (body.isEmpty()) return
         if (!_sending.compareAndSet(false, true)) return
+        launchSend(body) {
+            // Keep anything typed after submit, but clear exactly the text we sent.
+            _draft.compareAndSet(raw, "")
+        }
+    }
+
+    /**
+     * Sends a native quick action's slash command ("/new", "/stop", "/model … --session") as a
+     * text message for the bot to parse — identical to typing the command, which is the point:
+     * the bot treats both the same. The draft is never touched. Shares the send gate (a command
+     * is dropped while another send is in flight) and surfaces failures through [sendFailed].
+     */
+    fun sendCommand(command: String) {
+        val body = command.trim()
+        if (!body.startsWith("/")) return
+        if (!_sending.compareAndSet(false, true)) return
+        launchSend(body) {}
+    }
+
+    /** Body sender that assumes the send gate is already held; [onAccepted] on timeline receipt. */
+    private fun launchSend(body: String, onAccepted: () -> Unit) {
         _sendFailed.value = false
         viewModelScope.launch {
             try {
                 val handle = timeline
                 val sent = handle != null && handle.sendText(body)
-                if (sent) {
-                    // Keep anything typed after submit, but clear exactly the text we sent.
-                    _draft.compareAndSet(raw, "")
-                } else {
-                    _sendFailed.value = true
-                }
+                if (sent) onAccepted() else _sendFailed.value = true
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -393,6 +427,41 @@ class MatrixRoomViewModel internal constructor(
                 emptyList()
             }
         }
+    }
+
+    /**
+     * Opens the model picker, fetching the provider catalogue from the gateway REST API the first
+     * time (best-effort: a failure leaves the sheet showing retry-close-retry). Later opens reuse
+     * the loaded providers.
+     */
+    fun openModelPicker() {
+        val current = _modelPicker.value
+        if (current.open) return
+        if (current.providers.isNotEmpty()) {
+            _modelPicker.value = ModelPickerUi(open = true, providers = current.providers)
+            return
+        }
+        _modelPicker.value = ModelPickerUi(open = true, loading = true)
+        viewModelScope.launch {
+            _modelPicker.value = try {
+                ModelPickerUi(open = true, providers = loadProviders())
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                ModelPickerUi(open = true, failed = true)
+            }
+        }
+    }
+
+    /** Closes the model picker sheet, keeping the already-loaded providers for the next open. */
+    fun dismissModelPicker() {
+        _modelPicker.value = _modelPicker.value.copy(open = false)
+    }
+
+    /** Applies a model pick: closes the sheet and sends the SESSION-scope /model command. */
+    fun selectModel(provider: String, model: String) {
+        _modelPicker.value = _modelPicker.value.copy(open = false)
+        sendCommand(modelCommand(provider, model))
     }
 
     private fun closeTimeline() {
