@@ -8,7 +8,7 @@ We aim to acknowledge within 72 hours.
 
 ## Security posture
 
-Hermes for Android connects a phone to a **self-hosted** Hermes dashboard/gateway, so it
+Hermes Local connects a phone to a **self-hosted** Hermes dashboard/gateway, so it
 handles sensitive credentials and an authenticated channel to systems that can read mail,
 files, and more. Practices in this codebase:
 

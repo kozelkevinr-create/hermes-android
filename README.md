@@ -14,9 +14,10 @@ Built with Kotlin and Jetpack Compose (Material 3).
 
 ### Credits
 
-Hermes Local is a fork of [**Hermes for Android**](https://github.com/adebnar/hermes-android)
-by Andrew Debnar, and stays under the same [GPL-3.0 licence](LICENSE). The app ID is
-`com.kevinkozel.hermeslocal`, so it installs alongside the original. Bundled fonts (VT323,
+Hermes Local started from [**Hermes for Android**](https://github.com/adebnar/hermes-android)
+by Andrew Debnar and is now developed independently; it stays under the same
+[GPL-3.0 licence](LICENSE). The app ID is `com.kevinkozel.hermeslocal`, so it installs
+alongside the original. Bundled fonts (VT323,
 JetBrains Mono) are under the SIL Open Font License; see [`docs/licenses/`](docs/licenses).
 
 ---
@@ -307,13 +308,6 @@ All participation is governed by the **[Code of Conduct](CODE_OF_CONDUCT.md)**.
 Found a vulnerability? Please report it privately — see **[SECURITY.md](SECURITY.md)** for how
 to report and the app's security posture (encrypted credential storage, the token/basic-auth
 modes, the private-network/cleartext design, and supply-chain hygiene).
-
----
-
-## Support the original project
-
-Hermes Local builds on Andrew Debnar's work. If it's useful to you, consider supporting the
-upstream project on **[Ko-fi](https://ko-fi.com/andrew65386)**.
 
 ---
 

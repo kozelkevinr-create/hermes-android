@@ -1,4 +1,4 @@
-# Contributing to Hermes for Android
+# Contributing to Hermes Local
 
 Thanks for your interest! This is an early-stage open-source project. By participating you
 agree to the [Code of Conduct](CODE_OF_CONDUCT.md).

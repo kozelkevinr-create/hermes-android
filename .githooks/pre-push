@@ -5,7 +5,7 @@
 # Enable once per clone:  git config core.hooksPath .githooks
 set -uo pipefail
 
-repo_slug="adebnar/hermes-android"
+repo_slug="kozelkevinr-create/hermes-android"
 zero="0000000000000000000000000000000000000000"
 red=$'\033[31m'; grn=$'\033[32m'; ylw=$'\033[33m'; rst=$'\033[0m'
 fail(){ echo "${red}✗ pre-push blocked:${rst} $*" >&2; exit 1; }

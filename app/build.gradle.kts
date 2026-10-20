@@ -35,8 +35,8 @@ android {
     }
 
     defaultConfig {
-        // Own app ID so Hermes Local installs alongside the upstream Hermes app (Kotlin namespace
-        // stays com.hermes.client to keep upstream merges painless).
+        // Own app ID so Hermes Local installs alongside the original Hermes app (the Kotlin
+        // namespace stays com.hermes.client).
         applicationId = "com.kevinkozel.hermeslocal"
         minSdk = 26
         targetSdk = 37
