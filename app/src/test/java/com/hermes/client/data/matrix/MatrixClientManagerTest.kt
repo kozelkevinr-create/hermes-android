@@ -27,6 +27,20 @@ import java.io.File
 import java.nio.file.Files
 import java.util.concurrent.Executors
 
+/** A verification controller fake (nothing to record beyond identity and close). */
+private open class FakeVerificationController : MatrixVerificationHandle {
+    override val events: Flow<MatrixVerificationEvent> = kotlinx.coroutines.flow.emptyFlow()
+    override suspend fun requestDeviceVerification(): Boolean = true
+    override suspend fun requestUserVerification(mxid: String): Boolean = true
+    override suspend fun acceptRequest(): Boolean = true
+    override suspend fun startSas(): Boolean = true
+    override suspend fun approve(): Boolean = true
+    override suspend fun decline(): Boolean = true
+    override suspend fun cancel(): Boolean = true
+    var closed = false
+    override fun close() { closed = true }
+}
+
 private class FakeHandle(
     private val log: MutableList<String>,
     private val loginError: Throwable? = null,
@@ -51,6 +65,19 @@ private class FakeHandle(
         creationRequests += room
         log += "createRoom:${room.name ?: "dm"}"
         return createRoomResult
+    }
+
+    /** Set to null to make controller creation fail; recorded hand-outs and closes land here. */
+    val fakeController = FakeVerificationController()
+    var verificationControllerResult: MatrixVerificationHandle? = fakeController
+    var controllerRequests = 0
+    var controllerLog = mutableListOf<String>()
+
+    override suspend fun getVerificationController(): MatrixVerificationHandle? {
+        if (closed) return null
+        controllerRequests++
+        controllerLog += "controller"
+        return verificationControllerResult
     }
 
     override suspend fun login(username: String, password: String, deviceName: String): MatrixSessionData {
@@ -93,6 +120,8 @@ private class FakeHandle(
         closed = true
         diffs.close()
         log += "close"
+        // The RustClientHandle destroys the verification controller with the client; mirror it.
+        ((verificationControllerResult as? FakeVerificationController) ?: fakeController).closed = true
     }
 }
 
@@ -179,6 +208,28 @@ class MatrixClientManagerTest {
         // A later create still goes through: the failure is per call, not a dead session.
         sdk.handles.single().createRoomResult = "rid-2"
         assertEquals("rid-2", m.createRoom(MatrixNewRoom(name = "x", encrypted = true, isDirect = false)))
+    }
+
+    @Test fun verification_controller_goes_to_the_client_when_ready() = runTest {
+        val m = manager()
+        m.doLogin().join()
+        val c = m.verificationController()
+        assertEquals(sdk.handles.single().fakeController, c)
+        assertEquals(1, sdk.handles.single().controllerRequests)
+    }
+
+    @Test fun verification_controller_is_null_without_a_session_and_closed_with_the_handle() = runTest {
+        val m = manager()
+        assertNull(m.verificationController())
+
+        m.doLogin().join()
+        val h = sdk.handles.single()
+        assertNotNull(m.verificationController())
+
+        // Logout tears the client down, which closes the controller with it.
+        m.logout().join()
+        assertTrue(h.fakeController.closed)
+        assertTrue(h.controllerLog.contains("controller"))
     }
 
     @Test fun login_success_goes_ready_and_saves_session() = runTest {

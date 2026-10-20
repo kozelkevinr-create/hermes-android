@@ -118,6 +118,18 @@ class MatrixClientManager(
         }
     }
 
+    /**
+     * The session's SAS verification controller, created once per session and closed with the
+     * client in [teardown]. Null without a live session or when creation failed. Same lock
+     * discipline as [openTimeline].
+     */
+    suspend fun verificationController(): MatrixVerificationHandle? {
+        if (_state.value !is MatrixState.Ready) return null
+        return lock.withLock {
+            withContext(dispatcher) { handle?.getVerificationController() }
+        }
+    }
+
     /** Server logout (best effort), then stop, destroy and wipe everything local. Preempts a running login/restore. */
     fun logout(): Job {
         cancelAllOps()

@@ -52,6 +52,10 @@ import org.matrix.rustcomponents.sdk.SendTarget
 import org.matrix.rustcomponents.sdk.UploadSource
 import org.matrix.rustcomponents.sdk.UploadParameters
 import org.matrix.rustcomponents.sdk.Session
+import org.matrix.rustcomponents.sdk.SessionVerificationController
+import org.matrix.rustcomponents.sdk.SessionVerificationControllerDelegate
+import org.matrix.rustcomponents.sdk.SessionVerificationData
+import org.matrix.rustcomponents.sdk.SessionVerificationRequestDetails
 import org.matrix.rustcomponents.sdk.SlidingSyncVersion
 import org.matrix.rustcomponents.sdk.SlidingSyncVersionBuilder
 import org.matrix.rustcomponents.sdk.SqliteStoreBuilder
@@ -125,6 +129,9 @@ private class RustClientHandle(private val client: Client) : MatrixClientHandle 
     private var entriesHandle: TaskHandle? = null
     @Volatile private var closed = false
 
+    /** The SAS verification controller; owned by this client and destroyed with it. */
+    @Volatile private var verification: MatrixVerificationHandle? = null
+
     /** Timeline handles opened from this client; they must finish tearing down before [client]. */
     private val timelines = ClosableRegistry<RustTimelineHandle>()
 
@@ -197,6 +204,19 @@ private class RustClientHandle(private val client: Client) : MatrixClientHandle 
         null
     }
 
+    override suspend fun getVerificationController(): MatrixVerificationHandle? = try {
+        requireOpen()
+        verification ?: run {
+            val controller = client.getSessionVerificationController()
+            RustVerificationHandle(controller).also { verification = it }
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        DebugLog.log("matrix-error", "verification controller failed: ${e.javaClass.simpleName}")
+        null
+    }
+
     override suspend fun openTimeline(roomId: String): MatrixTimelineHandle? {
         requireOpen()
         val room = client.getRoom(roomId) ?: return null
@@ -248,6 +268,8 @@ private class RustClientHandle(private val client: Client) : MatrixClientHandle 
         // destroys its Room/Timeline) before client.destroy(). close() is already suspend, and the
         // manager calls it off the main thread.
         timelines.closeAll()
+        runCatching { verification?.close() }
+        verification = null
         runCatching { entriesHandle?.destroy() }
         runCatching { controller?.destroy() }
         runCatching { listResult?.destroy() }
@@ -894,6 +916,120 @@ private suspend fun RoomListEntriesUpdate.toSummaryDiff(): ListDiff<MatrixRoomSu
         is RoomListEntriesUpdate.Remove -> ListDiff.Remove(index.toInt())
         is RoomListEntriesUpdate.Truncate -> ListDiff.Truncate(length.toInt())
         is RoomListEntriesUpdate.Reset -> ListDiff.Reset(many(values))
+    }
+}
+
+/**
+ * The session's SAS verification controller over the FFI. The delegate is called on Rust
+ * threads: everything is mapped to a pure [MatrixVerificationEvent] immediately (the emoji and
+ * prompt objects are destroyed in the same breath) and shipped through an unlimited channel, so
+ * the flow itself can never throw or leak a native object.
+ */
+private class RustVerificationHandle(
+    private val controller: SessionVerificationController,
+) : MatrixVerificationHandle {
+    private val raw = Channel<MatrixVerificationEvent>(Channel.UNLIMITED)
+    override val events: Flow<MatrixVerificationEvent> = raw.receiveAsFlow()
+
+    /** True while a cancel/decline we sent is not yet accounted for by a didCancel callback. */
+    @Volatile private var selfCancelled = false
+
+    init {
+        controller.setDelegate(
+            object : SessionVerificationControllerDelegate {
+                override fun didReceiveVerificationRequest(details: SessionVerificationRequestDetails) {
+                    raw.trySend(MatrixVerificationEvent.Incoming(details.deviceDisplayName ?: ""))
+                }
+
+                override fun didAcceptVerificationRequest() {
+                    raw.trySend(MatrixVerificationEvent.Accepted)
+                }
+
+                override fun didStartSasVerification() {
+                    raw.trySend(MatrixVerificationEvent.SasStarted)
+                }
+
+                override fun didReceiveVerificationData(data: SessionVerificationData) {
+                    val event = try {
+                        when (data) {
+                            is SessionVerificationData.Emojis -> MatrixVerificationEvent.Emojis(
+                                data.emojis.map { e ->
+                                    try {
+                                        MatrixSasEmoji(e.symbol(), e.description())
+                                    } finally {
+                                        runCatching { e.destroy() }
+                                    }
+                                },
+                            )
+                            // A decimal-only prompt is not rendered; the flow stalls until one
+                            // side cancels (documented in the spec).
+                            is SessionVerificationData.Decimals -> MatrixVerificationEvent.SasStarted
+                            else -> MatrixVerificationEvent.Failed
+                        }
+                    } finally {
+                        runCatching { data.destroy() }
+                    }
+                    raw.trySend(event)
+                }
+
+                override fun didFail() {
+                    raw.trySend(MatrixVerificationEvent.Failed)
+                }
+
+                override fun didCancel() {
+                    // sasCancelInfo() is only populated for SAS-stage cancellations; before that
+                    // the direction is inferred from whether this side sent the cancel/decline.
+                    val info = runCatching { controller.sasCancelInfo() }.getOrNull()
+                    val byUs = info?.cancelledByUs ?: selfCancelled
+                    selfCancelled = false
+                    raw.trySend(MatrixVerificationEvent.Cancelled(byUs, info?.cancelCode))
+                }
+
+                override fun didFinish() {
+                    raw.trySend(MatrixVerificationEvent.Finished)
+                }
+            },
+        )
+    }
+
+    override suspend fun requestDeviceVerification(): Boolean {
+        selfCancelled = false
+        return call { it.requestDeviceVerification() }
+    }
+
+    override suspend fun requestUserVerification(mxid: String): Boolean {
+        selfCancelled = false
+        return call { it.requestUserVerification(mxid) }
+    }
+
+    override suspend fun acceptRequest(): Boolean = call { it.acceptVerificationRequest() }
+    override suspend fun startSas(): Boolean = call { it.startSasVerification() }
+    override suspend fun approve(): Boolean = call { it.approveVerification() }
+
+    override suspend fun decline(): Boolean {
+        selfCancelled = true
+        return call { it.declineVerification() }
+    }
+
+    override suspend fun cancel(): Boolean {
+        selfCancelled = true
+        return call { it.cancelVerification() }
+    }
+
+    /** One action; false when the controller is closed or the call failed. Never throws. */
+    private suspend fun call(block: suspend (SessionVerificationController) -> Unit): Boolean = try {
+        block(controller)
+        true
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        DebugLog.log("matrix-verif", "verification call failed: ${e.javaClass.simpleName}")
+        false
+    }
+
+    override fun close() {
+        runCatching { raw.close() }
+        runCatching { controller.destroy() }
     }
 }
 

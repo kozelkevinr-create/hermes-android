@@ -35,6 +35,55 @@ data class MatrixNewRoom(
     val invite: List<String> = emptyList(),
 )
 
+/** One emoji of the SAS short-authentication-string (7 of these make up a verification prompt). */
+data class MatrixSasEmoji(val symbol: String, val description: String)
+
+/**
+ * Events of the SAS verification flow, in order: a request is seen (incoming) or accepted
+ * (either direction), the SAS handshake starts, the emoji prompt arrives, then finish, cancel
+ * or failure. Emojis are the short code both sides compare.
+ */
+sealed interface MatrixVerificationEvent {
+    /** The peer sent a verification request; [deviceName] is the peer device's display name. */
+    data class Incoming(val deviceName: String) : MatrixVerificationEvent
+    /** A request was accepted (ours by the peer, or the peer's by us). SAS follows. */
+    data object Accepted : MatrixVerificationEvent
+    /** The SAS handshake started; the emoji prompt is next. */
+    data object SasStarted : MatrixVerificationEvent
+    /** The emoji short code arrived; both sides show the same list. */
+    data class Emojis(val emojis: List<MatrixSasEmoji>) : MatrixVerificationEvent
+    /** Both sides accepted the short code; keys, messages and devices are trusted now. */
+    data object Finished : MatrixVerificationEvent
+    /** The flow was cancelled. [cancelledByUs] distinguishes the two sides. */
+    data class Cancelled(val cancelledByUs: Boolean, val cancelCode: String?) : MatrixVerificationEvent
+    /** The flow failed non-semantically (network, protocol error). */
+    data object Failed : MatrixVerificationEvent
+}
+
+/**
+ * The verification-flow controller for one live session. A session ever has one; created on
+ * [MatrixClientHandle.getVerificationController] and closed with the client. One collector of
+ * [events] at a time (the screen's VM). All actions are never-throw seam calls: false means
+ * "not possible now", the flow itself reports via [events].
+ */
+interface MatrixVerificationHandle : AutoCloseable {
+    val events: Flow<MatrixVerificationEvent>
+    /** Starts device-to-device verification (the same account, a new/other session). */
+    suspend fun requestDeviceVerification(): Boolean
+    /** Starts identity verification with another user ([mxid]) — their devices, then trust. */
+    suspend fun requestUserVerification(mxid: String): Boolean
+    /** Accepts the pending incoming request. */
+    suspend fun acceptRequest(): Boolean
+    /** Sends the SAS start (each side may; the protocol dedups). */
+    suspend fun startSas(): Boolean
+    /** The short codes match. */
+    suspend fun approve(): Boolean
+    /** The short codes do not match. */
+    suspend fun decline(): Boolean
+    /** Aborts the flow. */
+    suspend fun cancel(): Boolean
+}
+
 interface MatrixClientHandle {
     suspend fun login(username: String, password: String, deviceName: String): MatrixSessionData
     suspend fun restore(session: MatrixSessionData)
@@ -44,6 +93,12 @@ interface MatrixClientHandle {
      * closed handle also reports null.
      */
     suspend fun createRoom(room: MatrixNewRoom): String? = null
+
+    /**
+     * The session's SAS verification controller, created once per session and closed with the
+     * client; null without a live session or on failure. Never throws.
+     */
+    suspend fun getVerificationController(): MatrixVerificationHandle? = null
 
     /**
      * Room-list diffs, already mapped to summaries. Single-collector; collect before [startSync].
