@@ -62,6 +62,7 @@ import androidx.compose.ui.text.AnnotatedString
 import kotlinx.coroutines.launch
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -257,8 +258,16 @@ fun ChatScreen(
                     }
                     AssistChip(
                         onClick = { modelSheetOpen = true },
-                        modifier = Modifier.minimumInteractiveComponentSize(),
-                        label = { Text(currentModel ?: "Model", maxLines = 1) },
+                        // Capped so a long model id can't crush the title slot to a sliver (which
+                        // wraps it a character per line and stretches the whole bar).
+                        modifier = Modifier.minimumInteractiveComponentSize().widthIn(max = 150.dp),
+                        label = {
+                            Text(
+                                currentModel ?: "Model",
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            )
+                        },
                         trailingIcon = {
                             Icon(
                                 Icons.Rounded.ArrowDropDown,

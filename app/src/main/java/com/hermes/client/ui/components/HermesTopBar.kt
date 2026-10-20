@@ -10,6 +10,7 @@ import androidx.compose.material3.TopAppBarColors
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import com.hermes.client.ui.theme.LocalProfileAccent
 
 /**
@@ -45,12 +46,14 @@ fun HermesTopBar(
         colors = colors,
         title = {
             Column {
-                Text(title, style = MaterialTheme.typography.titleLarge, color = barOn)
+                Text(title, style = MaterialTheme.typography.titleLarge, color = barOn, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (subtitle != null) {
                     Text(
                         subtitle,
                         style = MaterialTheme.typography.labelMedium,
                         color = barOn.copy(alpha = 0.75f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }

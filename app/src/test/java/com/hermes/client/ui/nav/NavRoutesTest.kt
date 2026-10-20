@@ -14,8 +14,8 @@ import org.junit.Test
  */
 class NavRoutesTest {
 
-    // The four bottom-bar tab roots (mirrors TABS in HermesNav and TAB_ROUTES in DeepLinkMapper).
-    private val tabRoutes = listOf("messages", "sessions", "brain", "oneshot")
+    // The three bottom-bar tab roots (mirrors TABS in HermesNav and TAB_ROUTES in DeepLinkMapper).
+    private val tabRoutes = listOf("messages", "sessions", "brain")
 
     // Start destinations picked in HermesNav ("setup" gates first launch).
     private val startDestinations = listOf("messages", "setup")

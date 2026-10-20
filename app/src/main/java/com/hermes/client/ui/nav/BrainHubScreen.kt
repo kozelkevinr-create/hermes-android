@@ -8,6 +8,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AdminPanelSettings
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.Forum
@@ -84,6 +85,9 @@ fun BrainHubScreen(onNavigate: (String) -> Unit, onOpenPalette: () -> Unit = {})
             SectionLabel("CAPABILITIES")
             HubRow(Icons.Rounded.Hub, "MCP servers", "Connected tool servers") {
                 onNavigate("settings_mcp")
+            }
+            HubRow(Icons.Rounded.Bolt, "Dispatch", "Fire-and-forget task via the bridge") {
+                onNavigate("oneshot")
             }
             HubRow(Icons.Rounded.Webhook, "Webhooks", "Inbound triggers") {
                 onNavigate("webhooks")

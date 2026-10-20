@@ -60,7 +60,6 @@ import com.hermes.client.ui.settings.SettingsScreen
 import com.hermes.client.ui.setup.SetupScreen
 import com.hermes.client.ui.tools.AgentsToolsScreen
 import com.hermes.client.ui.usage.UsageScreen
-import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.Psychology
 
@@ -70,7 +69,6 @@ private val TABS = listOf(
     Tab("messages", "Messages", Icons.AutoMirrored.Rounded.Chat),
     Tab("sessions", "Sessions", Icons.Rounded.Forum),
     Tab("brain", "Brain", Icons.Rounded.Psychology),
-    Tab("oneshot", "Oneshot", Icons.Rounded.Bolt),
 )
 
 /**

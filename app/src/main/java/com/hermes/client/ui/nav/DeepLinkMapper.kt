@@ -1,5 +1,6 @@
 package com.hermes.client.ui.nav
 
+// "oneshot" is no longer a bottom-bar tab but stays linkable (widget "dispatch"; reached via Brain).
 private val TAB_ROUTES = setOf("messages", "sessions", "brain", "oneshot")
 
 /**
