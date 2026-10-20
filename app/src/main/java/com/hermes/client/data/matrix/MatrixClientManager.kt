@@ -106,6 +106,18 @@ class MatrixClientManager(
         }
     }
 
+    /**
+     * Creates a room under the live session and returns its id, or null when no session is live
+     * or creation failed. Same lock discipline as [openTimeline]: the client call runs under
+     * [lock], so a logout can never destroy the client mid-create.
+     */
+    suspend fun createRoom(room: MatrixNewRoom): String? {
+        if (_state.value !is MatrixState.Ready) return null
+        return lock.withLock {
+            withContext(dispatcher) { handle?.createRoom(room) }
+        }
+    }
+
     /** Server logout (best effort), then stop, destroy and wipe everything local. Preempts a running login/restore. */
     fun logout(): Job {
         cancelAllOps()

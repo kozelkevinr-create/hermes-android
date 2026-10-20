@@ -23,9 +23,27 @@ interface MatrixSdk {
     suspend fun createClient(config: MatrixClientConfig): MatrixClientHandle
 }
 
+/**
+ * One create-room call's inputs. [name] is the visible room name (null for an unnamed DM).
+ * [isDirect] marks a direct-message room (trusted private preset); [invite] lists the invited
+ * MXIDs — for a DM exactly its peer (the Hermes bot).
+ */
+data class MatrixNewRoom(
+    val name: String?,
+    val encrypted: Boolean,
+    val isDirect: Boolean,
+    val invite: List<String> = emptyList(),
+)
+
 interface MatrixClientHandle {
     suspend fun login(username: String, password: String, deviceName: String): MatrixSessionData
     suspend fun restore(session: MatrixSessionData)
+
+    /**
+     * Creates the room and returns its new id, or null when creation failed. Never throws; a
+     * closed handle also reports null.
+     */
+    suspend fun createRoom(room: MatrixNewRoom): String? = null
 
     /**
      * Room-list diffs, already mapped to summaries. Single-collector; collect before [startSync].

@@ -6,6 +6,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,23 +19,33 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -54,8 +65,20 @@ fun MatrixRoomListScreen(
     vm: MatrixRoomListViewModel = hiltViewModel(),
 ) {
     val ui by vm.uiState.collectAsStateWithLifecycle()
+    val sheet by vm.newRoomSheet.collectAsStateWithLifecycle()
+    val ready = ui is RoomListUiState.Ready
+    LaunchedEffect(Unit) {
+        vm.createdRoomId.collect { id -> onOpenRoom(id) }
+    }
     Scaffold(
         topBar = { HermesTopBar(title = "Chats") },
+        floatingActionButton = {
+            if (ready) {
+                FloatingActionButton(onClick = { vm.openNewRoomSheet() }) {
+                    Icon(Icons.Rounded.Add, contentDescription = "New room")
+                }
+            }
+        },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             when (val s = ui) {
@@ -86,6 +109,14 @@ fun MatrixRoomListScreen(
                 )
             }
         }
+    }
+    if (sheet.open) {
+        NewRoomSheet(
+            sheet,
+            onDraftChange = vm::updateNewRoomDraft,
+            onCreate = vm::createNewRoom,
+            onDismiss = vm::dismissNewRoomSheet,
+        )
     }
 }
 
@@ -127,7 +158,7 @@ private fun ReadyContent(
     }
     // Read the clock once per recomposition; labels only change when the list does.
     val nowMs = System.currentTimeMillis()
-    LazyColumn {
+    LazyColumn(contentPadding = PaddingValues(bottom = 88.dp)) {
         items(state.rooms, key = { it.id }) { room ->
             RoomRow(room = room, nowMs = nowMs, onClick = { onOpenRoom(room.id) })
             HorizontalDivider()
@@ -230,4 +261,87 @@ private fun previewLine(room: MatrixRoomSummary): String {
     val preview = room.lastMessagePreview ?: return "No messages yet"
     val sender = room.lastMessageSender
     return if (sender.isNullOrBlank()) preview else "$sender: $preview"
+}
+
+/**
+ * The new-room sheet: a named (optionally encrypted) room or a direct message to the invited
+ * peer — prefilled with the Hermes bot. Encrypted-by-default comes from the setting.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun NewRoomSheet(
+    sheet: MatrixRoomListViewModel.NewRoomSheetUi,
+    onDraftChange: (NewRoomDraft) -> Unit,
+    onCreate: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("New room", style = MaterialTheme.typography.titleMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = sheet.draft.mode == NewRoomMode.ROOM,
+                    onClick = { onDraftChange(sheet.draft.copy(mode = NewRoomMode.ROOM)) },
+                    label = { Text("Room") },
+                )
+                FilterChip(
+                    selected = sheet.draft.mode == NewRoomMode.DM,
+                    onClick = { onDraftChange(sheet.draft.copy(mode = NewRoomMode.DM)) },
+                    label = { Text("Direct message") },
+                )
+            }
+            if (sheet.draft.mode == NewRoomMode.ROOM) {
+                OutlinedTextField(
+                    value = sheet.draft.name,
+                    onValueChange = { onDraftChange(sheet.draft.copy(name = it)) },
+                    placeholder = { Text("Room name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            OutlinedTextField(
+                value = sheet.draft.invite,
+                onValueChange = { onDraftChange(sheet.draft.copy(invite = it)) },
+                placeholder = { Text("Invite @user:server (comma separated)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Encrypted", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "New rooms are end-to-end encrypted",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = sheet.draft.encrypted,
+                    onCheckedChange = { onDraftChange(sheet.draft.copy(encrypted = it)) },
+                    modifier = Modifier.semantics { contentDescription = "Encrypted" },
+                )
+            }
+            if (sheet.error != null) {
+                Text(
+                    sheet.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            Button(
+                onClick = onCreate,
+                enabled = !sheet.creating,
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Create" },
+            ) {
+                if (sheet.creating) {
+                    CircularProgressIndicator(Modifier.size(20.dp))
+                } else {
+                    Text(if (sheet.draft.mode == NewRoomMode.DM) "Create DM" else "Create room")
+                }
+            }
+        }
+    }
 }

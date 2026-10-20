@@ -42,6 +42,17 @@ private class FakeHandle(
     var serverLoggedOut = false
     var timelineOpenedWhileClosed = false
 
+    /** Set to null to make creation fail; the requested rooms are recorded here. */
+    var createRoomResult: String? = "rid-1"
+    val creationRequests = mutableListOf<MatrixNewRoom>()
+
+    override suspend fun createRoom(room: MatrixNewRoom): String? {
+        if (closed) return null
+        creationRequests += room
+        log += "createRoom:${room.name ?: "dm"}"
+        return createRoomResult
+    }
+
     override suspend fun login(username: String, password: String, deviceName: String): MatrixSessionData {
         log += "login:$username"
         loginGate?.await()
@@ -141,6 +152,34 @@ class MatrixClientManagerTest {
 
     private fun MatrixClientManager.doLogin(user: String = "alice", pw: String = "pw", ca: ByteArray? = null) =
         login(" https://hs.example.test:8443/ ", " $user ", pw, " @bot:example.test ", ca)
+
+    @Test fun create_room_goes_to_the_client_when_ready() = runTest {
+        val m = manager()
+        m.doLogin().join()
+        val dm = MatrixNewRoom(name = null, encrypted = true, isDirect = true, invite = listOf("@bot:example.test"))
+        assertEquals("rid-1", m.createRoom(dm))
+
+        val h = sdk.handles.single()
+        assertEquals(listOf(dm), h.creationRequests)
+        assertEquals(listOf("login:alice", "startSync", "createRoom:dm"), log)
+    }
+
+    @Test fun create_room_without_a_session_is_null() = runTest {
+        val m = manager()
+        assertNull(m.createRoom(MatrixNewRoom(name = "x", encrypted = true, isDirect = false)))
+        // No client was ever created, so nothing could have been sent.
+        assertFalse(log.any { it.startsWith("createRoom") })
+    }
+
+    @Test fun create_room_failure_is_null_and_the_handle_survives() = runTest {
+        val m = manager()
+        m.doLogin().join()
+        sdk.handles.single().createRoomResult = null
+        assertNull(m.createRoom(MatrixNewRoom(name = "x", encrypted = true, isDirect = false)))
+        // A later create still goes through: the failure is per call, not a dead session.
+        sdk.handles.single().createRoomResult = "rid-2"
+        assertEquals("rid-2", m.createRoom(MatrixNewRoom(name = "x", encrypted = true, isDirect = false)))
+    }
 
     @Test fun login_success_goes_ready_and_saves_session() = runTest {
         val m = manager()

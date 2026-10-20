@@ -17,6 +17,7 @@ class SettingsStore(private val context: Context) {
     private val themeKey = stringPreferencesKey("theme_mode")
     private val toolDisplayKey = stringPreferencesKey("tool_call_display") // "product" | "technical"
     private val debugLoggingKey = booleanPreferencesKey("debug_logging")
+    private val matrixEncryptedKey = booleanPreferencesKey("matrix_rooms_encrypted")
 
     val themeMode: Flow<ThemeMode> = context.settingsDataStore.data.map { prefs ->
         runCatching { ThemeMode.valueOf(prefs[themeKey] ?: "DARK") }.getOrDefault(ThemeMode.DARK)
@@ -40,5 +41,17 @@ class SettingsStore(private val context: Context) {
 
     suspend fun setDebugLogging(enabled: Boolean) {
         context.settingsDataStore.edit { it[debugLoggingKey] = enabled }
+    }
+
+    /**
+     * Encrypted-by-default for new Matrix rooms (the new-room sheet's toggle position on open).
+     * On by default: private rooms with the bot work end-to-encrypted.
+     */
+    val matrixRoomsEncrypted: Flow<Boolean> = context.settingsDataStore.data.map { prefs ->
+        runCatching { prefs[matrixEncryptedKey] ?: true }.getOrDefault(true)
+    }
+
+    suspend fun setMatrixRoomsEncrypted(enabled: Boolean) {
+        context.settingsDataStore.edit { it[matrixEncryptedKey] = enabled }
     }
 }

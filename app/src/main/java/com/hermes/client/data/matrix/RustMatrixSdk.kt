@@ -21,6 +21,7 @@ import kotlinx.coroutines.launch
 import org.matrix.rustcomponents.sdk.Client
 import org.matrix.rustcomponents.sdk.ClientBuilder
 import org.matrix.rustcomponents.sdk.ClientSessionDelegate
+import org.matrix.rustcomponents.sdk.CreateRoomParameters
 import org.matrix.rustcomponents.sdk.Disposable
 import org.matrix.rustcomponents.sdk.EditedContent
 import org.matrix.rustcomponents.sdk.EventOrTransactionId
@@ -44,6 +45,8 @@ import org.matrix.rustcomponents.sdk.RoomListEntriesListener
 import org.matrix.rustcomponents.sdk.RoomListEntriesUpdate
 import org.matrix.rustcomponents.sdk.RoomListEntriesWithDynamicAdaptersResult
 import org.matrix.rustcomponents.sdk.RoomListService
+import org.matrix.rustcomponents.sdk.RoomPreset
+import org.matrix.rustcomponents.sdk.RoomVisibility
 import org.matrix.rustcomponents.sdk.ReceiptType
 import org.matrix.rustcomponents.sdk.SendTarget
 import org.matrix.rustcomponents.sdk.UploadSource
@@ -166,6 +169,32 @@ private class RustClientHandle(private val client: Client) : MatrixClientHandle 
     override suspend fun stopSync() {
         if (closed) return
         syncService?.stop()
+    }
+
+    /**
+     * Creates a private room (trusted private preset for DMs) and returns its id; null on
+     * failure. The parameters object is a plain FFI struct — nothing to destroy. Creation is
+     * synchronous server-side; the room then arrives through the room-list stream.
+     */
+    override suspend fun createRoom(room: MatrixNewRoom): String? = try {
+        requireOpen()
+        client.createRoom(
+            CreateRoomParameters(
+                name = room.name?.takeIf { it.isNotBlank() },
+                topic = null,
+                isEncrypted = room.encrypted,
+                isDirect = room.isDirect,
+                visibility = RoomVisibility.Private,
+                preset = if (room.isDirect) RoomPreset.TRUSTED_PRIVATE_CHAT else RoomPreset.PRIVATE_CHAT,
+                invite = room.invite.ifEmpty { null },
+            ),
+        )
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        // Metadata only; never user or server values.
+        DebugLog.log("matrix-error", "create room failed: ${e.javaClass.simpleName}")
+        null
     }
 
     override suspend fun openTimeline(roomId: String): MatrixTimelineHandle? {
