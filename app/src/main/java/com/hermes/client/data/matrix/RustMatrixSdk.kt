@@ -26,6 +26,7 @@ import org.matrix.rustcomponents.sdk.EditedContent
 import org.matrix.rustcomponents.sdk.EventOrTransactionId
 import org.matrix.rustcomponents.sdk.EventSendState
 import org.matrix.rustcomponents.sdk.EventTimelineItem
+import org.matrix.rustcomponents.sdk.ImageInfo
 import org.matrix.rustcomponents.sdk.LatestEventValue
 import org.matrix.rustcomponents.sdk.MembershipChange
 import org.matrix.rustcomponents.sdk.MessageContent
@@ -45,6 +46,8 @@ import org.matrix.rustcomponents.sdk.RoomListEntriesWithDynamicAdaptersResult
 import org.matrix.rustcomponents.sdk.RoomListService
 import org.matrix.rustcomponents.sdk.ReceiptType
 import org.matrix.rustcomponents.sdk.SendTarget
+import org.matrix.rustcomponents.sdk.UploadSource
+import org.matrix.rustcomponents.sdk.UploadParameters
 import org.matrix.rustcomponents.sdk.Session
 import org.matrix.rustcomponents.sdk.SlidingSyncVersion
 import org.matrix.rustcomponents.sdk.SlidingSyncVersionBuilder
@@ -423,6 +426,41 @@ private class RustTimelineHandle(
         } catch (e: Exception) {
             DebugLog.log("matrix-timeline", "read receipt failed: ${e.javaClass.simpleName}")
             false
+        }
+    }
+
+    override suspend fun sendImage(path: String, filename: String, mimetype: String?): Boolean = ffi.use(false) {
+        var info: ImageInfo? = null
+        try {
+            // UploadSource and UploadParameters are FFI value types: no native object to destroy.
+            val params = UploadParameters(
+                UploadSource.File(path),
+                null,                           // caption (no text caption on image sends yet)
+                null,                           // formatted caption
+                null,                           // mentions
+                null,                           // reply target
+                null,                           // extra content json
+            )
+            info = ImageInfo(
+                height = null,
+                width = null,
+                size = null,
+                mimetype = mimetype,
+                thumbnailInfo = null,
+                thumbnailSource = null,
+                blurhash = null,
+                isAnimated = null,
+            )
+            val handle = timeline.sendImage(params, null, info)
+            handle.join()
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            DebugLog.log("matrix-timeline", "image send failed: ${e.javaClass.simpleName}")
+            false
+        } finally {
+            info?.let { runCatching { it.destroy() } }
         }
     }
 

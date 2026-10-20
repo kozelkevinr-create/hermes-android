@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hermes.client.data.matrix.EventOrTxnId
+import com.hermes.client.data.matrix.ImageStager
 import com.hermes.client.data.matrix.MatrixClientManager
 import com.hermes.client.data.matrix.MatrixRoomSummary
 import com.hermes.client.data.matrix.MatrixState
@@ -11,6 +12,7 @@ import com.hermes.client.data.matrix.MatrixTimelineHandle
 import com.hermes.client.data.matrix.PaginationState
 import com.hermes.client.data.matrix.ReadReceiptSignal
 import com.hermes.client.data.matrix.ReadReceiptTracker
+import com.hermes.client.data.matrix.StagedImage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -48,13 +50,21 @@ class MatrixRoomViewModel internal constructor(
     matrix: StateFlow<MatrixState>,
     rooms: StateFlow<List<MatrixRoomSummary>>,
     private val openTimeline: suspend (String) -> MatrixTimelineHandle?,
+    private val stageImage: suspend (String) -> StagedImage?,
+    private val removeStaged: suspend (StagedImage) -> Unit,
 ) : ViewModel() {
 
-    @Inject constructor(manager: MatrixClientManager, savedStateHandle: SavedStateHandle) : this(
+    @Inject constructor(
+        manager: MatrixClientManager,
+        savedStateHandle: SavedStateHandle,
+        imageStager: ImageStager,
+    ) : this(
         roomId = savedStateHandle.get<String>("roomId") ?: "",
         matrix = manager.state,
         rooms = manager.rooms,
         openTimeline = { manager.openTimeline(it) },
+        stageImage = { imageStager.stage(it) },
+        removeStaged = { imageStager.delete(it) },
     )
 
     /** The room's name and encryption, for the top bar; null while the room list is empty. */
@@ -214,6 +224,40 @@ class MatrixRoomViewModel internal constructor(
                     _draft.compareAndSet(raw, "")
                 } else {
                     _sendFailed.value = true
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                _sendFailed.value = true
+            } finally {
+                _sending.value = false
+            }
+        }
+    }
+
+    /**
+     * Sends [uri] (a content URI from the photo picker) as an image message: a copy is staged into
+     * a cache file with a safe filename, uploaded through the timeline, and the copy is deleted.
+     * Image sends share the text send gate, so they never run while a text send/edit is in flight.
+     * Failures set [sendFailed]; the draft is untouched.
+     */
+    fun sendImage(uri: String) {
+        if (!_sending.compareAndSet(false, true)) return
+        _sendFailed.value = false
+        viewModelScope.launch {
+            try {
+                val staged = stageImage(uri)
+                if (staged == null) {
+                    _sendFailed.value = true
+                    return@launch
+                }
+                try {
+                    val handle = timeline
+                    val sent = handle != null && handle.sendImage(staged.path, staged.filename, staged.mimetype)
+                    if (!sent) _sendFailed.value = true
+                } finally {
+                    // Whatever happened, the staged copy is disposable.
+                    removeStaged(staged)
                 }
             } catch (e: CancellationException) {
                 throw e

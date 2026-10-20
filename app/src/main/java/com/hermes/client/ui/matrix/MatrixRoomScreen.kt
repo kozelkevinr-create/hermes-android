@@ -1,5 +1,7 @@
 package com.hermes.client.ui.matrix
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -32,6 +34,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Schedule
@@ -93,6 +96,9 @@ fun MatrixRoomScreen(roomId: String, onBack: () -> Unit, onSetup: () -> Unit, vm
     val editing by vm.editing.collectAsStateWithLifecycle()
     val editFailed by vm.editFailed.collectAsStateWithLifecycle()
     val name = room?.name ?: roomId
+    val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) vm.sendImage(uri.toString())
+    }
     Scaffold(
         topBar = {
             HermesTopBar(
@@ -126,6 +132,7 @@ fun MatrixRoomScreen(roomId: String, onBack: () -> Unit, onSetup: () -> Unit, vm
                     onDraftChange = vm::updateDraft,
                     onSend = { if (isEditing) vm.submitEdit() else vm.send() },
                     onCancelEdit = vm::cancelEdit,
+                    onPickImage = { pickImage.launch("image/*") },
                 )
             }
         },
@@ -427,6 +434,7 @@ private fun MessageComposer(
     onDraftChange: (String) -> Unit,
     onSend: () -> Unit,
     onCancelEdit: () -> Unit,
+    onPickImage: () -> Unit,
 ) {
     val canSend = draft.isNotBlank() && !sending
 
@@ -468,6 +476,19 @@ private fun MessageComposer(
                 Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.Bottom,
             ) {
+                if (editing) {
+                    Spacer(Modifier.width(52.dp))
+                } else {
+                    // Sending an image and editing a text never mix; the picker hides while editing.
+                    IconButton(onClick = onPickImage, enabled = !sending) {
+                        Icon(
+                            Icons.Rounded.AddPhotoAlternate,
+                            contentDescription = "Send image",
+                            tint = if (sending) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
                 OutlinedTextField(
                     value = draft,
                     onValueChange = onDraftChange,

@@ -7,6 +7,7 @@ import com.hermes.client.data.matrix.MatrixTimelineHandle
 import com.hermes.client.data.matrix.MessageKind
 import com.hermes.client.data.matrix.MessageSendState
 import com.hermes.client.data.matrix.PaginationState
+import com.hermes.client.data.matrix.StagedImage
 import com.hermes.client.data.matrix.TimelineEntry
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -49,6 +50,13 @@ private class FakeTimeline : MatrixTimelineHandle {
     var editResult = true
     val receiptsSent = mutableListOf<String>()
     var receiptResult = true
+    val imagesSent = mutableListOf<Triple<String, String, String?>>()
+    var imageResult = true
+
+    override suspend fun sendImage(path: String, filename: String, mimetype: String?): Boolean {
+        imagesSent += Triple(path, filename, mimetype)
+        return imageResult
+    }
 
     override suspend fun sendReadReceipt(eventId: String): Boolean {
         receiptsSent += eventId
@@ -108,11 +116,31 @@ class MatrixRoomViewModelTest {
 
     private fun vm(): MatrixRoomViewModel {
         opened.clear()
-        return MatrixRoomViewModel(roomId, matrix, rooms) { id ->
-            opened += id
-            nextTimeline
-        }
+        return MatrixRoomViewModel(
+            roomId,
+            matrix,
+            rooms,
+            openTimeline = { id ->
+                thrownOnOpen?.let { throw it }
+                opened += id
+                nextTimeline
+            },
+            stageImage = { uri ->
+                nextStagedImage.also { stagedUris += uri }
+            },
+            removeStaged = { staged ->
+                stagedPathsRemoved += staged.path
+            },
+        )
     }
+
+    /** Staged fake for [MatrixRoomViewModel.sendImage]; null makes staging fail. */
+    private var nextStagedImage: StagedImage? = StagedImage("/cache/stage-1.jpg", "photo.jpg", "image/jpeg")
+    private val stagedUris = mutableListOf<String>()
+    private val stagedPathsRemoved = mutableListOf<String>()
+
+    /** When set, the next [MatrixRoomViewModel] open call throws it (the outer test controls timing). */
+    private var thrownOnOpen: Throwable? = null
 
     private fun readySummary() = MatrixRoomSummary(roomId, "Room", isEncrypted = true, unread = 0, isDirect = true)
 
@@ -171,9 +199,10 @@ class MatrixRoomViewModelTest {
     @Test
     fun failed_when_open_throws() = runTest {
         rooms.value = listOf(readySummary())
-        val vm2 = MatrixRoomViewModel(roomId, matrix, rooms) { throw RuntimeException("boom") }
+        thrownOnOpen = RuntimeException("boom")
+        val vm = vm()
         matrix.value = MatrixState.Ready("@a:example.test", "D", "https://hs", "@bot:example.test")
-        assertEquals(RoomTimelineState.Failed("boom"), vm2.state.value)
+        assertEquals(RoomTimelineState.Failed("boom"), vm.state.value)
     }
 
     @Test
@@ -545,4 +574,72 @@ class MatrixRoomViewModelTest {
         kind = MessageKind.TEXT,
         sendState = MessageSendState.SENT,
     )
+
+    @Test
+    fun send_image_stages_sends_and_removes_the_copy() = runTest {
+        val timeline = readyRoom()
+        val vm = vm()
+
+        vm.sendImage("content://picked/one")
+        advanceUntilIdle()
+
+        assertEquals(listOf("content://picked/one"), stagedUris)
+        assertEquals(listOf(Triple("/cache/stage-1.jpg", "photo.jpg", "image/jpeg")), timeline.imagesSent)
+        assertEquals(listOf("/cache/stage-1.jpg"), stagedPathsRemoved)
+        assertFalse(vm.sendFailed.value)
+        assertFalse(vm.sending.value)
+        assertTrue(timeline.sent.isEmpty())
+    }
+
+    @Test
+    fun staging_failure_is_surfaced_and_sends_nothing() = runTest {
+        val timeline = readyRoom()
+        val vm = vm()
+        nextStagedImage = null
+
+        vm.sendImage("content://broken")
+        advanceUntilIdle()
+
+        assertEquals(listOf("content://broken"), stagedUris)
+        assertTrue(timeline.imagesSent.isEmpty())
+        assertTrue(stagedPathsRemoved.isEmpty())
+        assertTrue(vm.sendFailed.value)
+        assertFalse(vm.sending.value)
+    }
+
+    @Test
+    fun an_image_send_failure_is_surfaced() = runTest {
+        val timeline = readyRoom()
+        timeline.imageResult = false
+        val vm = vm()
+
+        vm.sendImage("content://picked/one")
+        advanceUntilIdle()
+
+        assertEquals(1, timeline.imagesSent.size)
+        assertTrue(vm.sendFailed.value)
+        // The staged copy is still disposed of after a failed upload.
+        assertEquals(listOf("/cache/stage-1.jpg"), stagedPathsRemoved)
+    }
+
+    @Test
+    fun an_image_send_while_a_text_send_is_in_flight_is_ignored() = runTest {
+        val timeline = readyRoom()
+        val vm = vm()
+        val gate = CompletableDeferred<Unit>()
+        timeline.sendGate = gate
+
+        vm.updateDraft("first")
+        vm.send()
+        runCurrent()
+        assertTrue(vm.sending.value)
+
+        vm.sendImage("content://picked/one")
+        runCurrent()
+        assertTrue(timeline.imagesSent.isEmpty())
+        assertTrue(stagedUris.isEmpty())
+
+        gate.complete(Unit)
+        advanceUntilIdle()
+    }
 }

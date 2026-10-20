@@ -94,6 +94,7 @@ private class FakeTimelineHandle : MatrixTimelineHandle {
     override suspend fun abortSend(itemId: EventOrTxnId): Boolean = true
     override suspend fun edit(itemId: EventOrTxnId, newBody: String): Boolean = true
     override suspend fun sendReadReceipt(eventId: String): Boolean = true
+    override suspend fun sendImage(path: String, filename: String, mimetype: String?): Boolean = true
     override fun close() {}
 }
 

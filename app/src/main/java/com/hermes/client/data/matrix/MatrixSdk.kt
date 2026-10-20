@@ -74,6 +74,9 @@ interface MatrixTimelineHandle {
     /** Sends a public read receipt for the remote event id [eventId]; false when it was rejected. Never throws. */
     suspend fun sendReadReceipt(eventId: String): Boolean
 
+    /** Uploads [path] as an image message named [filename]; false when it could not be sent. Never throws. */
+    suspend fun sendImage(path: String, filename: String, mimetype: String?): Boolean
+
     val paginationState: StateFlow<PaginationState>
 
     /** Cancels subscriptions and destroys every SDK object this handle holds. Idempotent. */
