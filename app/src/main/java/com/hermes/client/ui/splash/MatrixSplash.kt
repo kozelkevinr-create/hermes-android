@@ -7,12 +7,15 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -24,9 +27,14 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.imageResource
+import com.hermes.client.R
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -37,11 +45,13 @@ import androidx.compose.material3.Text
 import kotlin.random.Random
 
 // Boot sequence: a Matrix-style digital rain of green digits, which thins out to reveal the
-// wordmark before handing off to the app. Timings are deliberately short — a splash you have to
+// braille portrait before handing off to the app. Timings are deliberately short — a splash you have to
 // sit through twice stops being fun, so the whole thing is under two seconds.
 
 private const val RAIN_MILLIS = 1150
 private const val LOGO_MILLIS = 700
+private const val PORTRAIT_WIDTH_FRACTION = 0.62f
+private const val PORTRAIT_ASPECT = 576f / 896f
 
 /** One falling column of glyphs. Head is the bright leading character; the tail fades behind it. */
 private class RainColumn(val xPx: Float, var headPx: Float, val speedPxPerSec: Float, val tail: Int)
@@ -97,24 +107,15 @@ fun MatrixSplash(onFinished: () -> Unit) {
             enter = fadeIn(animationSpec = tween(260)),
             exit = fadeOut(animationSpec = tween(160)),
         ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Text(
-                    "HERMES",
-                    style = MaterialTheme.typography.displayMedium,
-                    color = Neon.Phosphor,
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "LOCAL",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = Neon.Phosphor.copy(alpha = 0.75f),
-                    )
-                    BlinkingCursor(color = Neon.Phosphor)
-                }
-            }
+            // Braille portrait, tinted phosphor green at draw time so it follows the palette.
+            // FilterQuality.None keeps the 1-bit dots crisp when scaled.
+            Image(
+                bitmap = ImageBitmap.imageResource(R.drawable.braille_portrait),
+                contentDescription = "Hermes Local",
+                colorFilter = ColorFilter.tint(Neon.Phosphor),
+                filterQuality = FilterQuality.None,
+                modifier = Modifier.fillMaxWidth(PORTRAIT_WIDTH_FRACTION).aspectRatio(PORTRAIT_ASPECT),
+            )
         }
     }
 }
