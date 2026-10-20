@@ -18,9 +18,10 @@ fun matrixNotificationId(roomId: String): Int {
 /**
  * Pure diff of two consecutive room-list snapshots into notification actions. A room notifies only
  * when it was already in [previous] and its unread count grew (or its latest activity advanced while
- * unread), the latest event is not our own, and the app is backgrounded; rooms that first appear (initial sync, login) never notify, so a cold
- * start cannot flood the shade with history. A room whose unread count drops to zero (read on this
- * or another device) has its notification cleared. Nothing here logs or throws.
+ * unread), the latest event is not our own, and the app is backgrounded; rooms that first appear
+ * (initial sync, login) never notify, so a cold start cannot flood the shade with history. A room
+ * whose unread count drops to zero (read on this or another device), or that leaves the list
+ * (left room, logout), has its notification cleared. Nothing here logs or throws.
  */
 fun diffMatrixNotifications(
     previous: List<MatrixRoomSummary>,
@@ -31,6 +32,8 @@ fun diffMatrixNotifications(
     val before = previous.associateBy { it.id }
     val posts = mutableListOf<NotificationSpec>()
     val cancels = mutableListOf<Int>()
+    val remaining = next.mapTo(HashSet()) { it.id }
+    previous.filter { it.id !in remaining }.mapTo(cancels) { matrixNotificationId(it.id) }
     for (room in next) {
         val old = before[room.id] ?: continue
         val id = matrixNotificationId(room.id)

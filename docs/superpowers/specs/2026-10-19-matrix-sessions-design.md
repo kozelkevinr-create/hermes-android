@@ -506,8 +506,9 @@ Each emission is diffed against the previous one by the pure `diffMatrixNotifica
   never flood the shade), the unread count grew — or latest activity advanced while unread > 0 —
   the latest event is not our own ("You"), the app is backgrounded, and `enabled` + the new
   `matrixMessages` pref (default on, "Chat messages" toggle) are set.
-- Unread dropping to 0 cancels that room's notification (read here or elsewhere) regardless of
-  foreground/prefs. Per-room stable id, kept clear of 1001-1003.
+- Unread dropping to 0, or the room leaving the list (left room, logout), cancels that room's
+  notification regardless of foreground/prefs. Matrix notifications use `setOnlyAlertOnce` so a
+  streamed/edited bot reply alerts once. Per-room stable id, kept clear of 1001-1003.
 - New `matrix_messages` channel (IMPORTANCE_HIGH, private on lockscreen). Tap routes through the
   existing `extra_route` rail to `matrix_room/<encoded id>`.
 
@@ -524,7 +525,7 @@ cancels its notification; the "Chat messages" toggle appears under Notifications
 stopped (6h dataSync cap on API 35+) — needs UnifiedPush/FCM; no per-room mute (SDK notification
 modes not read); no reply action; no log of any message content.
 
-**Tests:** `MatrixNotificationMapperTest` 14; full suite after: 88 fixtures, 646 tests, 0 failures.
+**Tests:** `MatrixNotificationMapperTest` 15; full suite after: 88 fixtures, 647 tests, 0 failures.
 
 ## Out of scope for Phase 0
 

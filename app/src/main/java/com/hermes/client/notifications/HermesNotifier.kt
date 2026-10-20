@@ -58,6 +58,8 @@ class HermesNotifier(private val context: Context) {
             .setContentText(spec.body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(spec.body))
             .setAutoCancel(true)
+            // A streamed bot reply updates one room notification repeatedly; only the first alerts.
+            .setOnlyAlertOnce(spec.channelId == Notif.CHANNEL_MATRIX)
             .setGroup(spec.groupKey)
             .setContentIntent(openIntent(spec.route, spec.id))
         spec.actions.forEach { a ->

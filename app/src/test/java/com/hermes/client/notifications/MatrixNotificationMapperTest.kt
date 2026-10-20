@@ -52,6 +52,12 @@ class MatrixNotificationMapperTest {
         assertTrue(diff(listOf(room(ts = 1)), listOf(room(unread = 0, ts = 2))).posts.isEmpty())
     }
 
+    @Test fun rooms_leaving_the_list_have_their_notification_cleared() {
+        val d = diff(listOf(room("!a:hs", unread = 1), room("!b:hs")), listOf(room("!b:hs")))
+        assertEquals(listOf(matrixNotificationId("!a:hs")), d.cancelIds)
+        assertEquals(listOf(matrixNotificationId("!a:hs")), diff(listOf(room("!a:hs")), emptyList()).cancelIds)
+    }
+
     @Test fun group_room_body_includes_sender() {
         val d = diff(listOf(room(direct = false)), listOf(room(direct = false, unread = 2, sender = "alice")))
         assertEquals("alice: hello", d.posts.single().body)
