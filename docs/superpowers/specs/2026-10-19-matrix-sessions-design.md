@@ -372,6 +372,28 @@ UI state machine itself is unchanged.
 - `MatrixSpikeActivity` (Phase 0 debug screen) is still the FIRST launcher entry; harmless, but a
   cleanup candidate.
 
+## Phase 6 (E2EE UX — in progress)
+
+### 6a — unable-to-decrypt states (done, no code needed)
+
+The UTD UX already landed with Phase 3 and holds up:
+- Timeline: `MsgLikeKind.UnableToDecrypt` → `TimelineEntry.Utd` → an "Encrypted message"
+  placeholder bubble (`MutedText`, muted color, non-interactive — no retry/abort editing).
+- Room-list preview: `previewOrNull()` maps UTD to the `ENCRYPTED_PREVIEW` constant.
+- Tests cover both mappings (`TimelinePresentationTest`, plus `previewOrNull` through the
+  room-summary pipeline).
+
+**On-device verification (emulator, 20 Oct):** opened the earlier-spike hermes DMs (they contain
+megolm events from before any key backup existed); the timeline's last rows render as "Encrypted
+message" (screenshot `screen_utd.png`).
+
+**SDK finding (verified with a temporary variant log, since removed):** the *room list* preview for
+a room whose only message events are UTD reads "No messages yet". `Room.latestEvent()` returns
+`None` in that case — the FFI never hands a `TimelineItemContent` UTD into the latest-event path,
+so no code on our side can surface "Encrypted message" there. Accepted: the preview briefly
+understates (timeline is authoritative on open), and the alternative would be paginating every
+empty-looking room, which is worse. Revisit only if the binding grows a UTD latest-event variant.
+
 ## Out of scope for Phase 0
 
 Real Sessions-tab UI, persistent storage, notifications, recovery/verification flows.
