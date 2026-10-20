@@ -25,7 +25,7 @@ Encrypted and unencrypted rooms must both work, so the client uses the matrix-ru
 | 2 | Room list (done) | Chats tab is the Matrix room list only; gateway sessions under Settings → Sessions |
 | 3 | Room timeline | Paginate, live diffs, edits, send text/images, read receipts |
 | 4 | Command wrapper | Palette of Hermes messaging commands (`/new /stop /model /usage /retry /undo /title /status /help /personality /approve /deny` ...); native New session -> `/new`, model picker -> `/model`, stop -> `/stop`; approval prompts get approve / always / deny buttons that send the matching reactions |
-| 5 | New-room sheet | Encrypted toggle (default from a setting); create DM + invite bot |
+| 5 | New-room sheet (done) | Encrypted toggle (default from a setting); create DM + invite bot |
 | 6 | E2EE UX | Recovery key, SAS emoji verification, unable-to-decrypt states |
 | 7 | Background | Background sync + notifications (reuse `GatewayConnectionService`; UnifiedPush later) |
 
@@ -311,6 +311,66 @@ failures leave an empty palette (raw commands still send as text).
   dumps.
 - Tests: 8 new VM cases (send/drop/fail/limits for commands, picker load/load-fail+retry/cache,
   pick → wire string) + the `modelCommand` pin (9 total).
+
+## Phase 5 (done — new-room sheet)
+
+### Design
+
+- Setting: `SettingsStore.matrixRoomsEncrypted` (DataStore key `matrix_rooms_encrypted`,
+  default **true**) — the "encrypted by default" toggle position for new rooms.
+- Seam: `MatrixNewRoom(name, encrypted, isDirect, invite)` + `MatrixClientHandle.createRoom`
+  (default `= null`, never throws; false-standard like the other seam calls). The manager gates
+  on `MatrixState.Ready`, runs the call under `lock` + its dispatcher (logout can never kill the
+  client mid-create), and returns null both for "no session" and "failed".
+- Rust FFI: `Client.createRoom(CreateRoomParameters)` with `visibility = Private`, preset
+  `TRUSTED_PRIVATE_CHAT` for DMs (else `PRIVATE_CHAT`), `invite` null when empty, name null for
+  DMs (the room list then shows the peer). The params object is a plain struct — nothing to
+  destroy. The room arrives through the normal room-list stream a few sync beats later
+  (same lag as any other device's change).
+- Pure logic in `NewRoomForm.kt`: `NewRoomMode { ROOM, DM }`, `NewRoomDraft`, `parseInvites`
+  (comma/whitespace), `mxidIsValid`, `newRoomError`, `newRoomRequest`. Validation: a room needs a
+  name but invites are **optional** (creator can invite later; the bot is prefilled anyway); a DM
+  needs at least one valid MXID.
+- `MatrixRoomListViewModel`: `NewRoomSheetUi(open, creating, draft, error)`; opening prefills the
+  bot MXID from `MatrixState.Ready.botMxid` and the toggle from the setting; mode switch drops the
+  name but keeps the invite/toggle; edits clear the error; invalid drafts surface `newRoomError`
+  and send nothing; a failed create keeps the sheet open with "Couldn't create the room." (the
+  seam gives no cause); success closes the sheet and emits the room id on `createdRoomId`
+  (SharedFlow, replay 0) which the screen turns into `onOpenRoom` navigation.
+- Screen: FAB (`Icons.Rounded.Add`, contentDescription "New room") shown only in `Ready`; sheet
+  with Room/DM FilterChips, name field (Room only), invite field (prefilled), Encrypted switch,
+  error text, Create button (spinner while creating). Room list gets a bottom content padding
+  (88dp) so the FAB covers no rows.
+
+### VM API note
+
+`MatrixRoomListViewModel` now takes the matrix state flow as a `private val` (to read `botMxid`
+when the sheet opens); its `@Inject` constructor passes `manager` + `SettingsStore`. The room-list
+UI state machine itself is unchanged.
+
+### On-device (emulator)
+
+- FAB → sheet: bot MXID prefilled, Encrypted on (the setting default), mode chips Room/DM.
+- Room mode with name "Phase5 Test Room" + prefilled bot invite → created, navigated into the
+  room; timeline shows "created the room", "turned on encryption", "changed the room name",
+  "hermes was invited", "hermes joined the room", "kevin joined the room"; the room appears in
+  the list (with the 🔒 badge) a few sync beats later.
+- DM mode → created a nameless DM inviting the bot, titled "hermes" in the list, hermes joined,
+  encryption on.
+- No `matrix-error` entries in logcat either run.
+- Tests: NewRoomFormTest 9, MatrixRoomListViewModelTest 7, MatrixClientManagerTest +3 (create
+  goes to the live client / null without a session / per-call failure keeps the session alive);
+  full suite after: 83 fixtures, 598 tests, 0 failures.
+
+### Known cuts (deliberate)
+
+- No `m.direct` account-data marking for DMs — the room works and shows the peer as its title,
+  but homeserver-side DM bookkeeping is absent; revisit if DM-specific UI (per-peer DM reuse
+  via `getDmRoom`) lands in a later phase.
+- The create seam returns no failure cause, so the sheet's error is generic by design
+  (logs carry only the exception class name).
+- `MatrixSpikeActivity` (Phase 0 debug screen) is still the FIRST launcher entry; harmless, but a
+  cleanup candidate.
 
 ## Out of scope for Phase 0
 
