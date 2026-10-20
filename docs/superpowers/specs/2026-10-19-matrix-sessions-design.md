@@ -265,6 +265,53 @@ Own bubbles already render "[image] filename" placeholders (Phase 2/3a mapping);
   image send ignored while a text send is in flight). The resolver/copy I/O path itself needs an
   on-device or emulator check.
 
+## Phase 4 (in progress — 4a, 4b done; approvals deferred)
+
+### Bot-side contract findings (live, from the emulator room)
+
+- The bot **does parse slash commands from plain Matrix text messages**: `/new` (sent twice) each
+  produced a bot confirm prompt; `/stop` produced "No active task to stop".
+- The bot **does emit approval prompts over Matrix** (contradicting the earlier "not implemented
+  yet" assumption): a "⚠️ Confirm /new" message offering Approve Once / Always Approve / Cancel,
+  with a text fallback of replying `!approve` / `!always` / `!cancel`. Note: my own `!cancel` and
+  `/help` sends did not linger in-room afterwards (bot-side cleanup suspected) — the reaction keys
+  for the room-side approve buttons stay parked until confirmed with the bot owner.
+- The bot's model chooser over Matrix is **reaction-based** (bot message "React to choose a
+  model: 1️⃣ … 🔟" with per-reaction highlight chips), not slash text. The `modelCommand` wire
+  string is preserved (same as the gateway chat) but whether the bot honors it over Matrix is
+  unverified.
+
+### 4a — command palette (done, commit 419878c)
+
+The composer's `/` replaces the timeline with the gateway slash-command catalog
+(`ChatRepository.commandsCatalog()`, shared with the gateway chat), mirroring the gateway chat's
+palette rules. Pure logic in `ui/matrix/CommandPalette.kt` with JVM tests:
+- `commandPaletteQuery(draft)`: the query while composing a slash word (no space), null otherwise.
+- `filterCommands(commands, query)`: case/slash-insensitive prefix match, catalog order kept.
+- `commandDraft(name)`: tap completes to `"/cmd "`.
+
+VM: `commands` StateFlow loaded per room open, best-effort — and **`ChatRepository.connect()`
+first** (cold start has no gateway socket; the RPC would block on its ready-gate — caught live).
+Screen: `CommandPalette` composable in the content slot; palette hidden while editing; gateway
+failures leave an empty palette (raw commands still send as text).
+
+### 4b — native hooks (done, commit ea0f414)
+
+- `sendCommand(command)` in the room VM: sends a fixed slash command as text for the bot to parse
+  (identical to typing it), never touches the draft, shares the `_sending` gate, failures surface
+  via `sendFailed`; ignores anything not starting with `/`.
+- Top-bar overflow quick actions (⋮): "New session" → `/new`, "Stop" → `/stop`, "Choose model…" →
+  the model picker sheet; send items disabled while a send is in flight.
+- Model picker: `ModelPickerUi` state; `openModelPicker()` fetches `ModelRepository.providers()`
+  (gateway REST) the first time (best-effort, failure + retry shown), later opens reuse it;
+  `selectModel(provider, model)` closes the sheet and sends `modelCommand(provider, model)` =
+  `/model <model> --provider <provider> --session` (the gateway chat's SESSION wire string).
+- On-device (emulator, Home Channel): `/new` sent from the menu (bot confirm prompt observed),
+  `/stop` sent (bot replied "No active task to stop."), palette/model sheet driven via adb UI
+  dumps.
+- Tests: 8 new VM cases (send/drop/fail/limits for commands, picker load/load-fail+retry/cache,
+  pick → wire string) + the `modelCommand` pin (9 total).
+
 ## Out of scope for Phase 0
 
 Real Sessions-tab UI, persistent storage, notifications, recovery/verification flows.
