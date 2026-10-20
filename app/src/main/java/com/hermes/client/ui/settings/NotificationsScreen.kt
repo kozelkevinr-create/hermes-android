@@ -48,6 +48,7 @@ class NotificationsViewModel @Inject constructor(
     fun setApprovals(v: Boolean) = viewModelScope.launch { settings.setApprovals(v) }
     fun setRunFinished(v: Boolean) = viewModelScope.launch { settings.setRunFinished(v) }
     fun setRunProgress(v: Boolean) = viewModelScope.launch { settings.setRunProgress(v) }
+    fun setMatrixMessages(v: Boolean) = viewModelScope.launch { settings.setMatrixMessages(v) }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -108,6 +109,13 @@ fun NotificationsScreen(onBack: () -> Unit, vm: NotificationsViewModel = hiltVie
                 prefs.runProgress,
                 enabled = prefs.enabled,
             ) { vm.setRunProgress(it) }
+            HorizontalDivider()
+            ToggleRow(
+                "Chat messages",
+                "Notify about new Matrix messages while the app is in the background",
+                prefs.matrixMessages,
+                enabled = prefs.enabled,
+            ) { vm.setMatrixMessages(it) }
         }
     }
 }

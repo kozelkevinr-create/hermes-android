@@ -24,6 +24,7 @@ class GatewayConnectionService : Service() {
     @Inject lateinit var settings: NotificationSettings
     @Inject lateinit var notifier: HermesNotifier
     @Inject lateinit var profiles: com.hermes.client.data.repository.ProfileManager
+    @Inject lateinit var matrix: com.hermes.client.data.matrix.MatrixClientManager
 
     // Held separately (not just scope.coroutineContext[Job]) so onDestroy can register an
     // invokeOnCompletion callback on it directly — see onDestroy for why.
@@ -84,6 +85,20 @@ class GatewayConnectionService : Service() {
         // collecting DataStore per event. Started first so its replayed value is in place before
         // events arrive; also picks up mid-run toggles (e.g. approvals turned off).
         scope.launch { settings.prefs.collect { latestPrefs = it } }
+        // Matrix sync lives in the manager for the whole process; this service just keeps the process
+        // alive and turns room-list changes into notifications. Each emission is diffed against the
+        // previous one, so rooms present at start never notify (see diffMatrixNotifications).
+        scope.launch {
+            var previous = matrix.rooms.value
+            matrix.rooms.collect { next ->
+                runCatching {
+                    val diff = diffMatrixNotifications(previous, next, latestPrefs, appInForeground)
+                    diff.cancelIds.forEach { notifier.cancel(it) }
+                    diff.posts.forEach { notifier.post(it) }
+                }
+                previous = next
+            }
+        }
         scope.launch {
             client.events.collect { event ->
                 // One malformed/unexpected event must not crash the process — mirror the guard

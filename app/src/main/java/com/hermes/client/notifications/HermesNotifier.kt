@@ -33,6 +33,11 @@ class HermesNotifier(private val context: Context) {
             NotificationChannel(Notif.CHANNEL_ACTIVITY, "Activity", NotificationManager.IMPORTANCE_DEFAULT),
         )
         sys.createNotificationChannel(
+            NotificationChannel(Notif.CHANNEL_MATRIX, "Chat messages", NotificationManager.IMPORTANCE_HIGH).apply {
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PRIVATE
+            },
+        )
+        sys.createNotificationChannel(
             NotificationChannel(Notif.CHANNEL_RUN_PROGRESS, "Run progress", NotificationManager.IMPORTANCE_LOW),
         )
     }

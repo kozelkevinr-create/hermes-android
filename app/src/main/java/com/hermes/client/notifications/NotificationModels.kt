@@ -6,6 +6,7 @@ data class NotificationPrefs(
     val approvals: Boolean = true,
     val runFinished: Boolean = true,
     val runProgress: Boolean = true,
+    val matrixMessages: Boolean = true,
 )
 
 /**
@@ -51,6 +52,7 @@ object Notif {
     const val CHANNEL_APPROVALS = "approvals"
     const val CHANNEL_SERVICE = "service"
     const val CHANNEL_ACTIVITY = "activity"
+    const val CHANNEL_MATRIX = "matrix_messages"
     // Live in-flight run progress. IMPORTANCE_LOW (not MIN like CHANNEL_SERVICE) so the ongoing
     // progress notification is actually glanceable in the shade and eligible for promotion to a
     // status-bar Live Update on API 36+, while still making no sound.
