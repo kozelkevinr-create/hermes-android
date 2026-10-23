@@ -596,6 +596,9 @@ fun ProfileEditScreen(onBack: () -> Unit, vm: ProfileEditViewModel = hiltViewMod
             sources = profiles.map { it.name }.filter { it != vm.name },
             onCopy = { src, sk, tl, mc, md -> copyingSettings = false; vm.copyFrom(src, sk, tl, mc, md) },
             onDismiss = { copyingSettings = false },
+        )
+    }
+
     if (browsingHub) {
         SkillHubDialog(
             results = state.hub,
@@ -865,6 +868,10 @@ private fun CopySettingsDialog(
             ) { Text("Copy") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
 private fun SkillHubDialog(
     results: List<HubSkillDto>?,
     error: String?,
