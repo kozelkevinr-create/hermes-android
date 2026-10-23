@@ -29,6 +29,7 @@ object NavRoutes {
     const val CHAT = "chat/{id}"
     const val MODELS = "models"
     const val PROFILES = "profiles"
+    const val PROFILE_EDIT = "profile_edit/{name}"
     const val CRON = "cron"
     const val CRON_DETAIL = "cron_detail/{id}"
     const val CRON_EDIT = "cron_edit/{id}"

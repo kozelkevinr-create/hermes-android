@@ -56,6 +56,9 @@ import kotlinx.serialization.Serializable
     @SerialName("is_default") val isDefault: Boolean = false,
     /** User-facing name. The gateway stores a rename of the default profile here. */
     @SerialName("display_name") val displayName: String = "",
+    val description: String = "",
+    val model: String? = null,
+    val provider: String? = null,
 ) {
     /** What to show in the UI; falls back to the id when no display name is set. */
     val label: String get() = displayName.ifBlank { name }

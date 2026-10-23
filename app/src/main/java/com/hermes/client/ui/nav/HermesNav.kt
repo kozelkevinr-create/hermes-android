@@ -292,7 +292,12 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
                 )
             }
             composable(NavRoutes.MODELS) { ModelsScreen(onMenu = back) }
-            composable(NavRoutes.PROFILES) { ProfilesScreen(onMenu = back) }
+            composable(NavRoutes.PROFILES) {
+                ProfilesScreen(onMenu = back, onEdit = { name -> nav.navigate("profile_edit/${Uri.encode(name)}") })
+            }
+            composable(NavRoutes.PROFILE_EDIT) {
+                com.hermes.client.ui.profiles.ProfileEditScreen(onBack = back)
+            }
             composable(NavRoutes.CRON) {
                 CronScreen(
                     onMenu = back,

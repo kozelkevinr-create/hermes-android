@@ -43,6 +43,29 @@ class ShellViewModel @Inject constructor(
             .onFailure { _renameError.value = it.message ?: "Rename failed" }
     }
 
+    private val _createError = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    val createError: StateFlow<String?> = _createError
+
+    /** Create [name] (optionally cloned from [cloneFrom]); [onDone] gets the new id. */
+    fun createProfile(
+        name: String,
+        cloneFrom: String?,
+        description: String,
+        keepSkills: List<String>,
+        onDone: (String) -> Unit,
+    ) = viewModelScope.launch {
+            _createError.value = null
+            runCatching { rest.createProfile(name, cloneFrom, description, keepSkills) }
+                .onSuccess { profileManager.refresh(); onDone(name) }
+                .onFailure { _createError.value = it.message ?: "Could not create profile" }
+        }
+
+    /** Names of the skills a new profile could start with (the dashboard profile's set). */
+    suspend fun availableSkills(): List<String> =
+        runCatching { rest.skills().map { it.name }.sorted() }.getOrDefault(emptyList())
+
+    fun clearCreateError() { _createError.value = null }
+
     fun clearRenameError() { _renameError.value = null }
 
     /** Set a custom accent colour for [profile] (persisted; overrides the auto-hashed hue). */

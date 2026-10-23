@@ -270,6 +270,51 @@ class HermesRestApi(
             }
     }
 
+    /** Create a profile. [cloneFrom] copies that profile's config, skills and SOUL (null = blank). */
+    suspend fun createProfile(
+        name: String,
+        cloneFrom: String?,
+        description: String?,
+        keepSkills: List<String> = emptyList(),
+    ) = withContext(Dispatchers.IO) {
+        val obj = buildJsonObject {
+            put("name", name)
+            if (!cloneFrom.isNullOrBlank()) put("clone_from", cloneFrom)
+            if (!description.isNullOrBlank()) put("description", description)
+            // Non-empty means "keep only these"; the gateway disables the other seeded skills.
+            if (keepSkills.isNotEmpty()) put("keep_skills", kotlinx.serialization.json.JsonArray(keepSkills.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+        }
+        val payload = json.encodeToString(JsonObject.serializer(), obj)
+            .toRequestBody("application/json".toMediaType())
+        okHttp.newCall(builder("/api/profiles").post(payload).build()).execute().use { resp ->
+            if (!resp.isSuccessful) throw HermesApiException(resp.code, resp.body?.string().orEmpty().ifBlank { "create failed" })
+        }
+    }
+
+    /** Delete a profile and its directory. Irreversible. */
+    suspend fun deleteProfile(name: String) = withContext(Dispatchers.IO) {
+        okHttp.newCall(builder("/api/profiles/$name").delete().build()).execute().use { resp ->
+            if (!resp.isSuccessful) throw HermesApiException(resp.code, resp.body?.string().orEmpty().ifBlank { "delete failed" })
+        }
+    }
+
+    suspend fun profileSoul(name: String): String =
+        get<JsonObject>("/api/profiles/$name/soul")["content"]?.jsonPrimitive?.content.orEmpty()
+
+    suspend fun setProfileSoul(name: String, content: String) = putProfileField(name, "soul", "content", content)
+
+    suspend fun setProfileDescription(name: String, description: String) =
+        putProfileField(name, "description", "description", description)
+
+    private suspend fun putProfileField(name: String, endpoint: String, field: String, value: String) =
+        withContext(Dispatchers.IO) {
+            val payload = buildJsonObject { put(field, value) }
+                .toString().toRequestBody("application/json".toMediaType())
+            okHttp.newCall(builder("/api/profiles/$name/$endpoint").put(payload).build()).execute().use { resp ->
+                if (!resp.isSuccessful) throw HermesApiException(resp.code, resp.body?.string().orEmpty().ifBlank { "save failed" })
+            }
+        }
+
     suspend fun setProfileModel(name: String, provider: String, model: String) = withContext(Dispatchers.IO) {
         val obj = buildJsonObject { put("provider", provider); put("model", model) }
         val payload = json.encodeToString(JsonObject.serializer(), obj)
@@ -301,7 +346,7 @@ class HermesRestApi(
             .toRequestBody("application/json".toMediaType())
         okHttp.newCall(builder("/api/env/reveal").post(payload).build()).execute().use { resp ->
             val body = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful) throw HermesApiException(resp.code, "reveal env failed")
+            if (!resp.isSuccessful) throw HermesApiException(resp.code, "reveal env failed (HTTP ${resp.code}) ${body.take(120)}".trim())
             json.decodeFromString<JsonObject>(body)["value"]?.jsonPrimitive?.content ?: ""
         }
     }
@@ -325,10 +370,13 @@ class HermesRestApi(
         }
     }
 
-    suspend fun skills(): List<SkillDto> = get("/api/skills")
+    suspend fun skills(profile: String? = null): List<SkillDto> = get("/api/skills${profileParam(profile, first = true)}")
 
-    suspend fun toggleSkill(name: String, enabled: Boolean) = withContext(Dispatchers.IO) {
-        val obj: JsonObject = buildJsonObject { put("name", name); put("enabled", enabled) }
+    suspend fun toggleSkill(name: String, enabled: Boolean, profile: String? = null) = withContext(Dispatchers.IO) {
+        val obj: JsonObject = buildJsonObject {
+            put("name", name); put("enabled", enabled)
+            if (!profile.isNullOrBlank()) put("profile", profile)
+        }
         val payload = json.encodeToString(JsonObject.serializer(), obj)
             .toRequestBody("application/json".toMediaType())
         okHttp.newCall(builder("/api/skills/toggle").put(payload).build()).execute().use { resp ->

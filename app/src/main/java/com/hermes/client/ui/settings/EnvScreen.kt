@@ -3,6 +3,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -28,7 +29,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -44,8 +47,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+private val SENSITIVE_MARKERS = listOf("api", "token", "secret", "key", "pass", "cred")
+
+/** Keys with api, token, secret, key, pass or cred in the name stay redacted until the user taps Reveal. */
+fun isSensitiveEnvKey(key: String) = SENSITIVE_MARKERS.any { key.contains(it, ignoreCase = true) }
+
 data class EnvUiState(
     val vars: List<Pair<String, EnvVarDto>> = emptyList(),
+    /** Real values of keys that are not sensitive, fetched on load. */
+    val plain: Map<String, String> = emptyMap(),
     val query: String = "",
     val loading: Boolean = true,
     val error: String? = null,
@@ -82,8 +92,27 @@ class EnvViewModel @Inject constructor(
 
     fun set(key: String, value: String) = viewModelScope.launch {
         runCatching { env.set(key, value, profile) }
-            .onSuccess { _state.value = _state.value.copy(message = "$key saved"); load() }
+            .onSuccess {
+                _state.value = _state.value.copy(message = "$key saved", plain = _state.value.plain - key)
+                load()
+            }
             .onFailure { _state.value = _state.value.copy(message = "Save failed: ${it.message}") }
+    }
+
+    /** Fetch the stored value of [key]; only called when the user taps Reveal. */
+    fun reveal(key: String, sensitive: Boolean, onValue: (String) -> Unit) = viewModelScope.launch {
+        runCatching { env.reveal(key, profile) }
+            .onSuccess { v ->
+                // Non-sensitive values are kept so the list can show them; sensitive ones never are.
+                if (!sensitive) _state.value = _state.value.copy(plain = _state.value.plain + (key to v))
+                onValue(v)
+            }
+            .onFailure {
+                val limited = (it as? com.hermes.client.data.network.HermesApiException)?.code == 429
+                _state.value = _state.value.copy(
+                    message = if (limited) "Too many reveal requests, wait a bit and try again" else "Reveal failed: ${it.message}",
+                )
+            }
     }
 
     fun clearMessage() { _state.value = _state.value.copy(message = null) }
@@ -126,10 +155,23 @@ fun EnvScreen(
                     items(state.filtered, key = { it.first }) { (key, dto) ->
                         ListItem(
                             headlineContent = { Text(key) },
-                            supportingContent = { Text(dto.description ?: dto.category ?: "") },
+                            supportingContent = {
+                                Column {
+                                    Text(dto.description ?: dto.category ?: "")
+                                    val shown = state.plain[key] ?: dto.redactedValue
+                                    if (dto.isSet && !shown.isNullOrBlank()) {
+                                        Text(
+                                            shown,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = MaterialTheme.colorScheme.primary,
+                                        )
+                                    }
+                                }
+                            },
                             trailingContent = {
                                 Text(
-                                    if (dto.isSet) "set" else "—",
+                                    if (dto.isSet) "● set" else "○ not set",
                                     color = if (dto.isSet) MaterialTheme.colorScheme.primary
                                     else MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -144,18 +186,42 @@ fun EnvScreen(
     }
 
     editing?.let { key ->
-        var value by remember(key) { mutableStateOf("") }
+        val current = state.vars.firstOrNull { it.first == key }?.second
+        val sensitive = isSensitiveEnvKey(key) || current?.isPassword == true
+        var value by remember(key) { mutableStateOf(if (sensitive) "" else state.plain[key].orEmpty()) }
+        var revealed by remember(key) { mutableStateOf(!sensitive && state.plain.containsKey(key)) }
+        LaunchedEffect(key) {
+            if (!sensitive && current?.isSet == true && !state.plain.containsKey(key)) {
+                vm.reveal(key, false) { value = it; revealed = true }
+            }
+        }
         AlertDialog(
             onDismissRequest = { editing = null },
             title = { Text(key) },
             text = {
-                OutlinedTextField(
-                    value = value,
-                    onValueChange = { value = it },
-                    label = { Text("Value") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                )
+                Column {
+                    if (current?.isSet == true) {
+                        Text(
+                            "Current: ${state.plain[key] ?: current.redactedValue ?: "set"}",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                        )
+                        // Offer Reveal whenever the real value isn't already on screen.
+                        if (sensitive || !state.plain.containsKey(key)) TextButton(onClick = {
+                            if (revealed) revealed = false
+                            else vm.reveal(key, sensitive) { value = it; revealed = true }
+                        }) { Text(if (revealed) "Hide" else "Reveal current value") }
+                    } else {
+                        Text("Not set", style = MaterialTheme.typography.bodySmall)
+                    }
+                    OutlinedTextField(
+                        value = value,
+                        onValueChange = { value = it },
+                        label = { Text("Value") },
+                        singleLine = true,
+                        visualTransformation = if (revealed) VisualTransformation.None else PasswordVisualTransformation(),
+                    )
+                }
             },
             confirmButton = {
                 TextButton(onClick = { editing = null; if (value.isNotBlank()) vm.set(key, value) }) { Text("Save") }

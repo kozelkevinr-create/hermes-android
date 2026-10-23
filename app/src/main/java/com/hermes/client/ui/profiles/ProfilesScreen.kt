@@ -1,9 +1,11 @@
 package com.hermes.client.ui.profiles
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -25,6 +27,7 @@ import com.hermes.client.ui.nav.ShellViewModel
 @Composable
 fun ProfilesScreen(
     onMenu: () -> Unit,
+    onEdit: (String) -> Unit,
     vm: ShellViewModel = hiltViewModel(),
 ) {
     val profiles by vm.profiles.collectAsStateWithLifecycle()
@@ -41,6 +44,8 @@ fun ProfilesScreen(
     var pickingAccentFor by androidx.compose.runtime.remember {
         androidx.compose.runtime.mutableStateOf<String?>(null)
     }
+    var creating by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    val createError by vm.createError.collectAsStateWithLifecycle()
     val accentOverrides = com.hermes.client.ui.theme.LocalProfileAccentOverrides.current
 
     Scaffold(
@@ -48,6 +53,13 @@ fun ProfilesScreen(
             com.hermes.client.ui.components.HermesTopBar(
                 title = "Profiles",
                 navigationIcon = { IconButton(onClick = onMenu) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
+            )
+        },
+        floatingActionButton = {
+            androidx.compose.material3.ExtendedFloatingActionButton(
+                onClick = { creating = true },
+                icon = { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Rounded.Add, contentDescription = null) },
+                text = { Text("New profile") },
             )
         },
     ) { padding ->
@@ -58,7 +70,7 @@ fun ProfilesScreen(
                     supportingContent = {
                         Text(
                             when {
-                                p.name == active -> "Active"
+                                p.name == active -> "Active · default for new sessions"
                                 p.isDefault -> "Default"
                                 else -> "Tap to switch"
                             },
@@ -73,13 +85,25 @@ fun ProfilesScreen(
                     }) else null,
                     modifier = Modifier.clickable { vm.switchProfile(p.name) },
                 )
+                androidx.compose.foundation.layout.Row(Modifier.padding(start = 8.dp)) {
+                androidx.compose.material3.TextButton(onClick = { onEdit(p.name) }) { Text("Edit") }
                 androidx.compose.material3.TextButton(
                     // Rename targets the canonical id; the dialog shows the current label.
                     onClick = { renaming = p.name; renamingLabel = p.label },
-                    modifier = Modifier.padding(start = 8.dp),
                 ) { Text("Rename") }
+                }
             }
         }
+    }
+
+    if (creating) {
+        NewProfileDialog(
+            existing = profiles.map { it.name },
+            loadSkills = vm::availableSkills,
+            error = createError,
+            onCreate = { name, from, desc, skills -> vm.createProfile(name, from, desc, skills) { creating = false; onEdit(it) } },
+            onDismiss = { creating = false; vm.clearCreateError() },
+        )
     }
 
     pickingAccentFor?.let { target ->
@@ -148,5 +172,100 @@ private fun RenameProfileDialog(
         dismissButton = {
             androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Cancel") }
         },
+    )
+}
+
+@Composable
+private fun NewProfileDialog(
+    existing: List<String>,
+    error: String?,
+    loadSkills: suspend () -> List<String>,
+    onCreate: (name: String, cloneFrom: String?, description: String, keepSkills: List<String>) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var name by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
+    var description by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
+    var cloneFrom by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    // null = keep every skill (the default); otherwise only the ticked ones start enabled.
+    var chosen by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<Set<String>?>(null) }
+    var allSkills by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<List<String>>(emptyList()) }
+    var pickSkills by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(pickSkills) { if (pickSkills && allSkills.isEmpty()) allSkills = loadSkills() }
+    // Profile ids become directory names and CLI aliases.
+    val valid = Regex("[a-z0-9][a-z0-9_-]{0,63}").matches(name)
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("New profile") },
+        text = {
+            androidx.compose.foundation.layout.Column(
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+            ) {
+                androidx.compose.material3.OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it.lowercase() },
+                    label = { Text("Name") },
+                    supportingText = { Text("Lowercase letters, digits, - and _") },
+                    isError = name.isNotEmpty() && !valid,
+                    singleLine = true,
+                )
+                androidx.compose.material3.OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Description (optional)") },
+                )
+                Text("Start from", style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
+                (listOf<String?>(null) + existing).forEach { src ->
+                    androidx.compose.foundation.layout.Row(
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        modifier = Modifier.clickable { cloneFrom = src },
+                    ) {
+                        androidx.compose.material3.RadioButton(selected = cloneFrom == src, onClick = { cloneFrom = src })
+                        Text(src?.let { "Copy of $it" } ?: "Blank")
+                    }
+                }
+                androidx.compose.foundation.layout.Row(
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    modifier = Modifier.clickable {
+                        pickSkills = !pickSkills
+                        chosen = if (pickSkills) (chosen ?: emptySet()) else null
+                    },
+                ) {
+                    androidx.compose.material3.Checkbox(
+                        checked = pickSkills,
+                        onCheckedChange = { pickSkills = it; chosen = if (it) (chosen ?: emptySet()) else null },
+                    )
+                    Text("Choose which skills to start with")
+                }
+                if (pickSkills) {
+                    androidx.compose.foundation.lazy.LazyColumn(Modifier.height(180.dp)) {
+                        items(allSkills, key = { it }) { sk ->
+                            androidx.compose.foundation.layout.Row(
+                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                modifier = Modifier.clickable {
+                                    val c = chosen ?: emptySet()
+                                    chosen = if (sk in c) c - sk else c + sk
+                                },
+                            ) {
+                                androidx.compose.material3.Checkbox(checked = sk in (chosen ?: emptySet()), onCheckedChange = null)
+                                Text(sk, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                    Text(
+                        "${chosen?.size ?: 0} of ${allSkills.size} selected",
+                        style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                    )
+                }
+                error?.let { Text(it, color = androidx.compose.material3.MaterialTheme.colorScheme.error) }
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(
+                onClick = { onCreate(name, cloneFrom, description.trim(), chosen?.toList().orEmpty()) },
+                // The gateway reads an empty keep-list as "keep everything", so require a pick.
+                enabled = valid && (!pickSkills || !chosen.isNullOrEmpty()),
+            ) { Text("Create") }
+        },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
