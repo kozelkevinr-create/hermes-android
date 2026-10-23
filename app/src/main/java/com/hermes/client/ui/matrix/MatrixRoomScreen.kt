@@ -93,7 +93,13 @@ private val OtherBubbleShape = CutCornerShape(topStart = 0.dp, topEnd = 12.dp, b
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MatrixRoomScreen(roomId: String, onBack: () -> Unit, onSetup: () -> Unit, vm: MatrixRoomViewModel = hiltViewModel()) {
+fun MatrixRoomScreen(
+    roomId: String,
+    onBack: () -> Unit,
+    onSetup: () -> Unit,
+    onSettings: (String) -> Unit,
+    vm: MatrixRoomViewModel = hiltViewModel(),
+) {
     val room by vm.room.collectAsStateWithLifecycle()
     val state by vm.state.collectAsStateWithLifecycle()
     val sending by vm.sending.collectAsStateWithLifecycle()
@@ -160,6 +166,13 @@ fun MatrixRoomScreen(roomId: String, onBack: () -> Unit, onSetup: () -> Unit, vm
                                 vm.openModelPicker()
                             },
                             enabled = ready,
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Room settings") },
+                            onClick = {
+                                quickActionsOpen = false
+                                onSettings(roomId)
+                            },
                         )
                     }
                 },

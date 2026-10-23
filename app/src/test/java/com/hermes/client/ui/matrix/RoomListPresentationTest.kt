@@ -31,6 +31,17 @@ class RoomListPresentationTest {
     private val now = 1_792_411_200_000L
     private val hour = 3_600_000L
 
+    @Test fun favourites_sort_above_newer_rooms_and_keep_recency_order_within_each_group() {
+        val rooms = listOf(
+            room("a", "A", ts = now - hour),
+            room("b", "B", ts = now - 9 * hour).copy(isFavourite = true),
+            room("c", "C", ts = now - 2 * hour),
+            room("d", "D", ts = now - 3 * hour).copy(isFavourite = true),
+        )
+        assertEquals(listOf("d", "b", "a", "c").sortedBy { it }.size, sortByRecency(rooms).size)
+        assertEquals(listOf("d", "b", "a", "c"), sortByRecency(rooms).map { it.id })
+    }
+
     @Test fun sort_is_newest_last_message_first_with_no_activity_last() {
         val rooms = listOf(
             room("a", "A", ts = now - 5 * hour),
