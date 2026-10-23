@@ -57,6 +57,8 @@ data class EnvUiState(
     /** Real values of keys that are not sensitive, fetched on load. */
     val plain: Map<String, String> = emptyMap(),
     val query: String = "",
+    /** Profile whose variables are shown; null follows the active profile. */
+    val profile: String? = null,
     val loading: Boolean = true,
     val error: String? = null,
     val message: String? = null,
@@ -73,7 +75,16 @@ class EnvViewModel @Inject constructor(
 ) : ViewModel() {
     private val _state = MutableStateFlow(EnvUiState())
     val state: StateFlow<EnvUiState> = _state.asStateFlow()
-    private val profile: String? get() = profileManager.active.value
+    private val profile: String? get() = _state.value.profile ?: profileManager.active.value
+    val profiles get() = profileManager.list
+    val activeProfile get() = profileManager.active
+
+    /** Show another profile's variables. Cached plain values belong to the old profile, so drop them. */
+    fun selectProfile(name: String) {
+        if (name == (_state.value.profile ?: profileManager.active.value)) return
+        _state.value = _state.value.copy(profile = name, plain = emptyMap(), vars = emptyList(), query = "")
+        load()
+    }
 
     init { load() }
 
@@ -127,12 +138,15 @@ fun EnvScreen(
     val state by vm.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var editing by remember { mutableStateOf<String?>(null) }
+    val profiles by vm.profiles.collectAsStateWithLifecycle()
+    val activeProfile by vm.activeProfile.collectAsStateWithLifecycle()
+    val shownProfile = state.profile ?: activeProfile
     LaunchedEffect(state.message) { state.message?.let { snackbar.showSnackbar(it); vm.clearMessage() } }
 
     Scaffold(
         topBar = {
             com.hermes.client.ui.components.HermesTopBar(
-                title = "API keys & env",
+                title = if (shownProfile.isNullOrBlank()) "API keys & env" else "API keys & env · $shownProfile",
                 navigationIcon = { IconButton(onClick = onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
             )
         },
@@ -143,6 +157,22 @@ fun EnvScreen(
                 state.loading -> com.hermes.client.ui.components.LoadingState()
                 state.error != null -> Text(state.error!!, Modifier.align(Alignment.Center))
                 else -> LazyColumn(Modifier.fillMaxSize()) {
+                    if (profiles.size > 1) {
+                        item {
+                            androidx.compose.foundation.lazy.LazyRow(
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+                            ) {
+                                items(profiles, key = { it.name }) { p ->
+                                    androidx.compose.material3.FilterChip(
+                                        selected = p.name == shownProfile,
+                                        onClick = { vm.selectProfile(p.name) },
+                                        label = { Text(p.label) },
+                                    )
+                                }
+                            }
+                        }
+                    }
                     item {
                         OutlinedTextField(
                             value = state.query,
