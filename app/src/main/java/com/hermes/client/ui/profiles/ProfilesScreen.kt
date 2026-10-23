@@ -4,7 +4,9 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -66,6 +68,18 @@ fun ProfilesScreen(
         LazyColumn(Modifier.padding(padding).fillMaxSize()) {
             items(profiles, key = { it.name }) { p ->
                 ListItem(
+                    leadingContent = {
+                        androidx.compose.foundation.layout.Box(
+                            Modifier
+                                .size(20.dp)
+                                .background(
+                                    com.hermes.client.ui.theme.rememberProfileAccent(
+                                        p.name, androidx.compose.foundation.isSystemInDarkTheme(),
+                                    ).accent,
+                                    androidx.compose.foundation.shape.CircleShape,
+                                ),
+                        )
+                    },
                     headlineContent = { Text(p.label) },
                     supportingContent = {
                         Text(
@@ -87,6 +101,7 @@ fun ProfilesScreen(
                 )
                 androidx.compose.foundation.layout.Row(Modifier.padding(start = 8.dp)) {
                 androidx.compose.material3.TextButton(onClick = { onEdit(p.name) }) { Text("Edit") }
+                androidx.compose.material3.TextButton(onClick = { pickingAccentFor = p.name }) { Text("Color") }
                 androidx.compose.material3.TextButton(
                     // Rename targets the canonical id; the dialog shows the current label.
                     onClick = { renaming = p.name; renamingLabel = p.label },
