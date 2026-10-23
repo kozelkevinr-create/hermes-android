@@ -204,6 +204,15 @@ data class ModelOptionDto(
 )
 @Serializable data class McpServersDto(val servers: List<McpServerDto> = emptyList())
 
+@Serializable data class McpToolInfoDto(val name: String, val description: String? = null)
+@Serializable data class McpTestResultDto(
+    val ok: Boolean = false,
+    val error: String? = null,
+    val tools: List<McpToolInfoDto> = emptyList(),
+    val prompts: Int = 0,
+    val resources: Int = 0,
+)
+
 @Serializable data class McpEnvSpecDto(
     val name: String,
     val prompt: String? = null,

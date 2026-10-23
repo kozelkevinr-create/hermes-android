@@ -12,6 +12,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.AlertDialog
@@ -48,6 +49,7 @@ import androidx.lifecycle.viewModelScope
 import com.hermes.client.data.network.HermesRestApi
 import com.hermes.client.data.network.McpCatalogEntryDto
 import com.hermes.client.data.network.McpServerDto
+import com.hermes.client.data.network.McpTestResultDto
 import com.hermes.client.data.network.ModelProviderDto
 import com.hermes.client.data.network.ToolsetDto
 import com.hermes.client.data.network.SkillDto
@@ -74,6 +76,8 @@ data class ProfileEditState(
     val tools: List<ToolsetDto> = emptyList(),
     val mcp: List<McpServerDto> = emptyList(),
     val mcpError: String? = null,
+    /** Server being tested and its result; the result is null while the probe runs. */
+    val testing: Pair<String, McpTestResultDto?>? = null,
     val catalog: List<McpCatalogEntryDto>? = null,
     /** Error from the last add, delete or install, shown inside its dialog. */
     val mcpActionError: String? = null,
@@ -172,6 +176,16 @@ class ProfileEditViewModel @Inject constructor(
             .onSuccess { reloadMcp(); _state.value = _state.value.copy(message = "$serverName added"); onDone() }
             .onFailure { _state.value = _state.value.copy(mcpActionError = it.message ?: "Could not add server") }
     }
+
+    fun testMcp(server: McpServerDto) = viewModelScope.launch {
+        _state.value = _state.value.copy(testing = server.name to null)
+        val result = runCatching { rest.testMcpServer(server.name, name) }
+            .getOrElse { McpTestResultDto(ok = false, error = it.message ?: "Test failed") }
+        // The user may have dismissed the dialog while the probe ran.
+        if (_state.value.testing?.first == server.name) _state.value = _state.value.copy(testing = server.name to result)
+    }
+
+    fun dismissTest() { _state.value = _state.value.copy(testing = null) }
 
     fun deleteMcp(server: McpServerDto) = viewModelScope.launch {
         runCatching { rest.deleteMcpServer(server.name, name) }
@@ -397,6 +411,9 @@ fun ProfileEditScreen(onBack: () -> Unit, vm: ProfileEditViewModel = hiltViewMod
                             },
                             trailingContent = {
                                 androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                    IconButton(onClick = { vm.testMcp(m) }) {
+                                        Icon(Icons.Rounded.PlayArrow, contentDescription = "Test ${m.name}")
+                                    }
                                     if (!fromPlugin) {
                                         IconButton(onClick = { removingMcp = m }) {
                                             Icon(Icons.Rounded.Delete, contentDescription = "Remove ${m.name}")
@@ -436,6 +453,34 @@ fun ProfileEditScreen(onBack: () -> Unit, vm: ProfileEditViewModel = hiltViewMod
             onDismiss = { browsingCatalog = false },
         )
     }
+    state.testing?.let { (serverName, result) ->
+        AlertDialog(
+            onDismissRequest = vm::dismissTest,
+            title = { Text("Test $serverName") },
+            text = {
+                when {
+                    result == null -> Text("Connecting…")
+                    !result.ok -> Text(result.error ?: "Failed", color = MaterialTheme.colorScheme.error)
+                    else -> Column {
+                        Text(
+                            "Connected: ${result.tools.size} tools, ${result.prompts} prompts, ${result.resources} resources",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        LazyColumn(Modifier.height(260.dp)) {
+                            items(result.tools, key = { it.name }) { t ->
+                                ListItem(
+                                    headlineContent = { Text(t.name, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall) },
+                                    supportingContent = t.description?.takeIf { it.isNotBlank() }?.let { { Text(it, maxLines = 2) } },
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = vm::dismissTest) { Text("Close") } },
+        )
+    }
+
     removingMcp?.let { m ->
         AlertDialog(
             onDismissRequest = { removingMcp = null },

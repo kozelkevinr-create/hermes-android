@@ -418,6 +418,18 @@ class HermesRestApi(
         }
     }
 
+    /** Connect to the server, list its tools and disconnect. Can take several seconds. */
+    suspend fun testMcpServer(name: String, profile: String?): McpTestResultDto = withContext(Dispatchers.IO) {
+        val path = "/api/mcp/servers/${java.net.URLEncoder.encode(name, "UTF-8")}/test${profileParam(profile, first = true)}"
+        // A slow server must not be cut off by the default read timeout.
+        val client = okHttp.newBuilder().readTimeout(60, java.util.concurrent.TimeUnit.SECONDS).build()
+        client.newCall(builder(path).post(ByteArray(0).toRequestBody(null)).build()).execute().use { resp ->
+            val body = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) throw HermesApiException(resp.code, errorDetail(body, "test failed (HTTP ${resp.code})"))
+            json.decodeFromString<McpTestResultDto>(body)
+        }
+    }
+
     suspend fun deleteMcpServer(name: String, profile: String?) = withContext(Dispatchers.IO) {
         val path = "/api/mcp/servers/${java.net.URLEncoder.encode(name, "UTF-8")}${profileParam(profile, first = true)}"
         okHttp.newCall(builder(path).delete().build()).execute().use { resp ->
