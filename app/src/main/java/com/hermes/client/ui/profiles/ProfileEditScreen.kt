@@ -8,8 +8,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.AlertDialog
@@ -30,6 +32,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -43,6 +46,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.hermes.client.data.network.HermesRestApi
+import com.hermes.client.data.network.McpCatalogEntryDto
 import com.hermes.client.data.network.McpServerDto
 import com.hermes.client.data.network.ModelProviderDto
 import com.hermes.client.data.network.ToolsetDto
@@ -70,6 +74,9 @@ data class ProfileEditState(
     val tools: List<ToolsetDto> = emptyList(),
     val mcp: List<McpServerDto> = emptyList(),
     val mcpError: String? = null,
+    val catalog: List<McpCatalogEntryDto>? = null,
+    /** Error from the last add, delete or install, shown inside its dialog. */
+    val mcpActionError: String? = null,
     val toolsError: String? = null,
 ) {
     val shownSkills: List<SkillDto>
@@ -147,6 +154,50 @@ class ProfileEditViewModel @Inject constructor(
         }
     }
 
+    private suspend fun reloadMcp() {
+        runCatching { rest.mcpServers(name) }.onSuccess { _state.value = _state.value.copy(mcp = it, mcpError = null) }
+    }
+
+    /** Add a server; [onDone] runs only when the gateway accepted it. */
+    fun addMcp(
+        serverName: String,
+        url: String?,
+        command: String?,
+        args: List<String>,
+        env: Map<String, String>,
+        onDone: () -> Unit,
+    ) = viewModelScope.launch {
+        _state.value = _state.value.copy(mcpActionError = null)
+        runCatching { rest.addMcpServer(name, serverName, url, command, args, env) }
+            .onSuccess { reloadMcp(); _state.value = _state.value.copy(message = "$serverName added"); onDone() }
+            .onFailure { _state.value = _state.value.copy(mcpActionError = it.message ?: "Could not add server") }
+    }
+
+    fun deleteMcp(server: McpServerDto) = viewModelScope.launch {
+        runCatching { rest.deleteMcpServer(server.name, name) }
+            .onSuccess { reloadMcp(); _state.value = _state.value.copy(message = "${server.name} removed") }
+            .onFailure { _state.value = _state.value.copy(message = "Could not remove ${server.name}: ${it.message}") }
+    }
+
+    fun loadCatalog() = viewModelScope.launch {
+        _state.value = _state.value.copy(mcpActionError = null)
+        runCatching { rest.mcpCatalog(name) }
+            .onSuccess { _state.value = _state.value.copy(catalog = it) }
+            .onFailure { _state.value = _state.value.copy(catalog = emptyList(), mcpActionError = "Could not load catalog: ${it.message}") }
+    }
+
+    fun installCatalog(entry: McpCatalogEntryDto, env: Map<String, String>, onDone: () -> Unit) = viewModelScope.launch {
+        _state.value = _state.value.copy(mcpActionError = null)
+        runCatching { rest.installMcpCatalogEntry(name, entry.name, env) }
+            .onSuccess {
+                reloadMcp(); loadCatalog()
+                _state.value = _state.value.copy(message = "${entry.name} installed"); onDone()
+            }
+            .onFailure { _state.value = _state.value.copy(mcpActionError = it.message ?: "Install failed") }
+    }
+
+    fun clearMcpActionError() { _state.value = _state.value.copy(mcpActionError = null) }
+
     /** Load the provider and model catalog for the picker. */
     fun loadModels() = viewModelScope.launch {
         if (_state.value.providers.isEmpty()) {
@@ -205,6 +256,9 @@ fun ProfileEditScreen(onBack: () -> Unit, vm: ProfileEditViewModel = hiltViewMod
     var skillsOpen by rememberSaveable { mutableStateOf(false) }
     var toolsOpen by rememberSaveable { mutableStateOf(false) }
     var mcpOpen by rememberSaveable { mutableStateOf(false) }
+    var addingMcp by remember { mutableStateOf(false) }
+    var browsingCatalog by remember { mutableStateOf(false) }
+    var removingMcp by remember { mutableStateOf<McpServerDto?>(null) }
     LaunchedEffect(state.message) { state.message?.let { snackbar.showSnackbar(it); vm.clearMessage() } }
     LaunchedEffect(state.deleted) { if (state.deleted) onBack() }
 
@@ -325,6 +379,12 @@ fun ProfileEditScreen(onBack: () -> Unit, vm: ProfileEditViewModel = hiltViewMod
                     )
                 }
                 if (mcpOpen) {
+                    item {
+                        androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = { vm.clearMcpActionError(); addingMcp = true }) { Text("Add server") }
+                            OutlinedButton(onClick = { vm.loadCatalog(); browsingCatalog = true }) { Text("Browse catalog") }
+                        }
+                    }
                     state.mcpError?.let { err ->
                         item { Text(err, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                     }
@@ -336,7 +396,14 @@ fun ProfileEditScreen(onBack: () -> Unit, vm: ProfileEditViewModel = hiltViewMod
                                 Text(if (fromPlugin) "Provided by plugin ${m.plugin ?: ""}".trim() else (m.transport ?: ""))
                             },
                             trailingContent = {
-                                Switch(checked = m.enabled, enabled = !fromPlugin, onCheckedChange = { vm.toggleMcp(m, it) })
+                                androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                    if (!fromPlugin) {
+                                        IconButton(onClick = { removingMcp = m }) {
+                                            Icon(Icons.Rounded.Delete, contentDescription = "Remove ${m.name}")
+                                        }
+                                    }
+                                    Switch(checked = m.enabled, enabled = !fromPlugin, onCheckedChange = { vm.toggleMcp(m, it) })
+                                }
                             },
                         )
                     }
@@ -352,6 +419,31 @@ fun ProfileEditScreen(onBack: () -> Unit, vm: ProfileEditViewModel = hiltViewMod
                 }
             }
         }
+    }
+
+    if (addingMcp) {
+        AddMcpDialog(
+            error = state.mcpActionError,
+            onAdd = { n, url, cmd, args, env -> vm.addMcp(n, url, cmd, args, env) { addingMcp = false } },
+            onDismiss = { addingMcp = false },
+        )
+    }
+    if (browsingCatalog) {
+        McpCatalogDialog(
+            entries = state.catalog,
+            error = state.mcpActionError,
+            onInstall = { entry, env -> vm.installCatalog(entry, env) { } },
+            onDismiss = { browsingCatalog = false },
+        )
+    }
+    removingMcp?.let { m ->
+        AlertDialog(
+            onDismissRequest = { removingMcp = null },
+            title = { Text("Remove ${m.name}?") },
+            text = { Text("This deletes the server from ${vm.name}'s config. Other profiles are not affected.") },
+            confirmButton = { TextButton(onClick = { removingMcp = null; vm.deleteMcp(m) }) { Text("Remove", color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { TextButton(onClick = { removingMcp = null }) { Text("Cancel") } },
+        )
     }
 
     if (pickingModel) {
@@ -427,5 +519,138 @@ private fun ModelPickerDialog(
         },
         confirmButton = {},
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun AddMcpDialog(
+    error: String?,
+    onAdd: (name: String, url: String?, command: String?, args: List<String>, env: Map<String, String>) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var name by remember { mutableStateOf("") }
+    var remote by remember { mutableStateOf(false) }
+    var url by remember { mutableStateOf("") }
+    var command by remember { mutableStateOf("") }
+    var args by remember { mutableStateOf("") }
+    var env by remember { mutableStateOf("") }
+    val envMap = env.lines().mapNotNull { line ->
+        line.substringBefore('=', "").trim().takeIf { it.isNotEmpty() && line.contains('=') }
+            ?.let { it to line.substringAfter('=').trim() }
+    }.toMap()
+    val valid = Regex("[A-Za-z0-9][A-Za-z0-9_-]*").matches(name) && (if (remote) url.isNotBlank() else command.isNotBlank())
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add MCP server") },
+        text = {
+            Column(
+                Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    androidx.compose.material3.FilterChip(selected = !remote, onClick = { remote = false }, label = { Text("Local command") })
+                    androidx.compose.material3.FilterChip(selected = remote, onClick = { remote = true }, label = { Text("Remote URL") })
+                }
+                if (remote) {
+                    OutlinedTextField(url, { url = it }, label = { Text("URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                } else {
+                    OutlinedTextField(command, { command = it }, label = { Text("Command") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(
+                        args, { args = it }, label = { Text("Arguments") },
+                        supportingText = { Text("Separated by spaces") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        env, { env = it }, label = { Text("Environment (optional)") },
+                        supportingText = { Text("One KEY=value per line") }, minLines = 2, modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = valid,
+                onClick = {
+                    if (remote) onAdd(name, url.trim(), null, emptyList(), emptyMap())
+                    else onAdd(name, null, command.trim(), args.split(' ').filter { it.isNotBlank() }, envMap)
+                },
+            ) { Text("Add") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun McpCatalogDialog(
+    entries: List<McpCatalogEntryDto>?,
+    error: String?,
+    onInstall: (McpCatalogEntryDto, Map<String, String>) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var selected by remember { mutableStateOf<McpCatalogEntryDto?>(null) }
+    val values = remember { mutableStateMapOf<String, String>() }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(selected?.name ?: "MCP catalog") },
+        text = {
+            val sel = selected
+            if (sel == null) {
+                Column {
+                    error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                    when {
+                        entries == null -> Text("Loading…")
+                        entries.isEmpty() && error == null -> Text("The catalog is empty.")
+                        else -> LazyColumn(Modifier.height(360.dp)) {
+                            items(entries, key = { it.name }) { e ->
+                                ListItem(
+                                    headlineContent = { Text(e.name) },
+                                    supportingContent = { Text(e.description.orEmpty(), maxLines = 2) },
+                                    trailingContent = { if (e.installed) Text("installed", style = MaterialTheme.typography.labelSmall) },
+                                    modifier = Modifier.clickable(enabled = !e.installed) { values.clear(); selected = e },
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(sel.description.orEmpty(), style = MaterialTheme.typography.bodySmall)
+                    if (sel.needsInstall) {
+                        Text(
+                            "This entry downloads and builds code on the gateway host.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.tertiary,
+                        )
+                    }
+                    sel.requiredEnv.forEach { spec ->
+                        OutlinedTextField(
+                            value = values[spec.name].orEmpty(),
+                            onValueChange = { values[spec.name] = it },
+                            label = { Text(spec.name + if (spec.required) " *" else "") },
+                            supportingText = spec.prompt?.takeIf { it.isNotBlank() }?.let { { Text(it) } },
+                            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                }
+            }
+        },
+        confirmButton = {
+            val sel = selected
+            if (sel != null) {
+                TextButton(
+                    enabled = sel.requiredEnv.none { it.required && values[it.name].isNullOrBlank() },
+                    onClick = { onInstall(sel, values.filterValues { it.isNotBlank() }.toMap()); selected = null },
+                ) { Text("Install") }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { if (selected != null) selected = null else onDismiss() }) {
+                Text(if (selected != null) "Back" else "Close")
+            }
+        },
     )
 }

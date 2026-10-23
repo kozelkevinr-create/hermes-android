@@ -198,8 +198,27 @@ data class ModelOptionDto(
     /** "config" for servers in the profile's config; "plugin" ones cannot be toggled. */
     val source: String? = null,
     val plugin: String? = null,
+    val url: String? = null,
+    val command: String? = null,
+    val args: List<String> = emptyList(),
 )
 @Serializable data class McpServersDto(val servers: List<McpServerDto> = emptyList())
+
+@Serializable data class McpEnvSpecDto(
+    val name: String,
+    val prompt: String? = null,
+    val required: Boolean = true,
+)
+@Serializable data class McpCatalogEntryDto(
+    val name: String,
+    val description: String? = null,
+    val transport: String? = null,
+    @SerialName("required_env") val requiredEnv: List<McpEnvSpecDto> = emptyList(),
+    val installed: Boolean = false,
+    val enabled: Boolean = false,
+    @SerialName("needs_install") val needsInstall: Boolean = false,
+)
+@Serializable data class McpCatalogDto(val entries: List<McpCatalogEntryDto> = emptyList())
 
 @Serializable data class ToolsetDto(
     val name: String,

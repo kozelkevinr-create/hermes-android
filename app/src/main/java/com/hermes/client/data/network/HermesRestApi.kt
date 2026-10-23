@@ -396,6 +396,56 @@ class HermesRestApi(
     suspend fun toggleMcpServer(name: String, enabled: Boolean, profile: String? = null) =
         toggleProfileScoped("/api/mcp/servers/${java.net.URLEncoder.encode(name, "UTF-8")}/enabled", enabled, profile)
 
+    /** Add an MCP server to [profile]'s config. Give [url] for a remote server or [command] for a local one. */
+    suspend fun addMcpServer(
+        profile: String?,
+        name: String,
+        url: String?,
+        command: String?,
+        args: List<String>,
+        env: Map<String, String>,
+    ) = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            put("name", name)
+            if (!url.isNullOrBlank()) put("url", url)
+            if (!command.isNullOrBlank()) put("command", command)
+            if (args.isNotEmpty()) put("args", kotlinx.serialization.json.JsonArray(args.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+            if (env.isNotEmpty()) put("env", buildJsonObject { env.forEach { (k, v) -> put(k, v) } })
+            if (!profile.isNullOrBlank()) put("profile", profile)
+        }.toString().toRequestBody("application/json".toMediaType())
+        okHttp.newCall(builder("/api/mcp/servers").post(payload).build()).execute().use { resp ->
+            if (!resp.isSuccessful) throw HermesApiException(resp.code, errorDetail(resp.body?.string().orEmpty(), "add server failed"))
+        }
+    }
+
+    suspend fun deleteMcpServer(name: String, profile: String?) = withContext(Dispatchers.IO) {
+        val path = "/api/mcp/servers/${java.net.URLEncoder.encode(name, "UTF-8")}${profileParam(profile, first = true)}"
+        okHttp.newCall(builder(path).delete().build()).execute().use { resp ->
+            if (!resp.isSuccessful) throw HermesApiException(resp.code, errorDetail(resp.body?.string().orEmpty(), "delete failed"))
+        }
+    }
+
+    suspend fun mcpCatalog(profile: String?): List<McpCatalogEntryDto> =
+        get<McpCatalogDto>("/api/mcp/catalog${profileParam(profile, first = true)}").entries
+
+    suspend fun installMcpCatalogEntry(profile: String?, name: String, env: Map<String, String>) =
+        withContext(Dispatchers.IO) {
+            val payload = buildJsonObject {
+                put("name", name)
+                put("enable", true)
+                if (env.isNotEmpty()) put("env", buildJsonObject { env.forEach { (k, v) -> put(k, v) } })
+                if (!profile.isNullOrBlank()) put("profile", profile)
+            }.toString().toRequestBody("application/json".toMediaType())
+            okHttp.newCall(builder("/api/mcp/catalog/install").post(payload).build()).execute().use { resp ->
+                if (!resp.isSuccessful) throw HermesApiException(resp.code, errorDetail(resp.body?.string().orEmpty(), "install failed"))
+            }
+        }
+
+    /** The gateway reports failures as {"detail": "..."}; fall back to [default] for anything else. */
+    private fun errorDetail(body: String, default: String): String =
+        runCatching { json.decodeFromString<JsonObject>(body)["detail"]?.jsonPrimitive?.content }.getOrNull()
+            ?.takeIf { it.isNotBlank() } ?: default
+
     /** PUT {enabled, profile} to [path]; the gateway applies it to that profile's config. */
     private suspend fun toggleProfileScoped(path: String, enabled: Boolean, profile: String?) =
         withContext(Dispatchers.IO) {
