@@ -47,7 +47,8 @@ class FilesViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { rest.listFiles(path) }
                 .onSuccess { dto ->
-                    val all = dto.entries
+                    // LazyColumn keys on path; the server can list the same path twice.
+                    val all = dto.entries.distinctBy { it.path }
                     _state.value = FilesState(
                         path = dto.path,
                         parent = dto.parent,
