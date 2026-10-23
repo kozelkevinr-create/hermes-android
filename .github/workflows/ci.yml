@@ -1,12 +1,12 @@
 name: CI
 
-# Build + unit-test every push and PR to the production and beta branches.
+# Build + unit-test every push and PR to main, stage and test.
 # Uses an unsigned debug build, so it needs no secrets.
 on:
   push:
-    branches: [main]
+    branches: [main, stage, test]
   pull_request:
-    branches: [main]
+    branches: [main, stage, test]
 
 jobs:
   build:

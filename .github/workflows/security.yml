@@ -4,9 +4,9 @@ name: Security
 # (release runtime) dependencies.
 on:
   push:
-    branches: [main]
+    branches: [main, stage, test]
   pull_request:
-    branches: [main]
+    branches: [main, stage, test]
 
 jobs:
   secret-scan:
