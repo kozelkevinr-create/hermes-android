@@ -228,6 +228,22 @@ data class ModelOptionDto(
     @SerialName("needs_install") val needsInstall: Boolean = false,
 )
 @Serializable data class McpCatalogDto(val entries: List<McpCatalogEntryDto> = emptyList())
+@Serializable data class HubSkillDto(
+    val name: String,
+    val description: String? = null,
+    val source: String? = null,
+    val identifier: String,
+    @SerialName("trust_level") val trustLevel: String? = null,
+    val category: String? = null,
+    val installed: Boolean = false,
+)
+/** Hub search reports installs as a map keyed by identifier beside the results; the official catalog flags each row. */
+@Serializable data class HubSearchDto(
+    val results: List<HubSkillDto> = emptyList(),
+    val installed: Map<String, kotlinx.serialization.json.JsonElement> = emptyMap(),
+    @SerialName("timed_out") val timedOut: List<String> = emptyList(),
+)
+@Serializable data class HubOfficialDto(val skills: List<HubSkillDto> = emptyList())
 
 @Serializable data class ToolsetDto(
     val name: String,
