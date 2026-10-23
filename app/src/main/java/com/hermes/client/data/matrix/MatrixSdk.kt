@@ -88,6 +88,31 @@ data class MatrixNewRoom(
     val invite: List<String> = emptyList(),
 )
 
+/** One person in a room, as the room settings screen lists them. */
+data class MatrixRoomMember(
+    val userId: String,
+    /** Display name, or null when the member has none set. */
+    val displayName: String?,
+    val isMe: Boolean,
+    /** Invited but not joined yet. */
+    val isInvited: Boolean,
+    /** True when the signed-in user may remove this member. */
+    val canRemove: Boolean,
+)
+
+/** What the room settings screen shows and which controls the signed-in user may use. */
+data class MatrixRoomDetails(
+    val name: String,
+    val topic: String,
+    val isDirect: Boolean,
+    val isFavourite: Boolean,
+    val isMarkedUnread: Boolean,
+    val canRename: Boolean,
+    val canSetTopic: Boolean,
+    val canInvite: Boolean,
+    val members: List<MatrixRoomMember>,
+)
+
 /** One emoji of the SAS short-authentication-string (7 of these make up a verification prompt). */
 data class MatrixSasEmoji(val symbol: String, val description: String)
 
@@ -146,6 +171,18 @@ interface MatrixClientHandle {
      * closed handle also reports null.
      */
     suspend fun createRoom(room: MatrixNewRoom): String? = null
+
+    /** The room's settings view, or null when the room is unknown or the call failed. Never throws. */
+    suspend fun roomDetails(roomId: String): MatrixRoomDetails? = null
+
+    /** Room-management calls below: true on success, false on any failure. Never throw. */
+    suspend fun renameRoom(roomId: String, name: String): Boolean = false
+    suspend fun setRoomTopic(roomId: String, topic: String): Boolean = false
+    suspend fun inviteToRoom(roomId: String, userId: String): Boolean = false
+    suspend fun removeFromRoom(roomId: String, userId: String): Boolean = false
+    suspend fun leaveRoom(roomId: String): Boolean = false
+    suspend fun setRoomFavourite(roomId: String, favourite: Boolean): Boolean = false
+    suspend fun setRoomMarkedUnread(roomId: String, unread: Boolean): Boolean = false
 
     /**
      * The session's SAS verification controller, created once per session and closed with the

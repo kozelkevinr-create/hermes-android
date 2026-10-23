@@ -212,6 +212,14 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
                     roomId = entry.arguments?.getString("roomId") ?: "",
                     onBack = back,
                     onSetup = { nav.navigate("settings_matrix") { launchSingleTop = true } },
+                    onSettings = { id -> nav.navigate("matrix_room_settings/${Uri.encode(id)}") { launchSingleTop = true } },
+                )
+            }
+            composable(NavRoutes.MATRIX_ROOM_SETTINGS) {
+                com.hermes.client.ui.matrix.MatrixRoomSettingsScreen(
+                    onBack = back,
+                    // Leaving closes the settings and the room it belonged to.
+                    onLeft = { nav.popBackStack(NavRoutes.MESSAGES, inclusive = false) },
                 )
             }
             composable(NavRoutes.ACTIVITY) { com.hermes.client.ui.activity.MissionControlScreen(onNavigate = push) }

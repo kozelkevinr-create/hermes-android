@@ -24,6 +24,7 @@ object NavRoutes {
     const val FILE_VIEW = "file_view/{path}"
     const val FILE_EDIT = "file_edit/{path}"
     const val MATRIX_ROOM = "matrix_room/{roomId}"
+    const val MATRIX_ROOM_SETTINGS = "matrix_room_settings/{roomId}"
     const val ARCHIVED = "archived"
     const val CHAT = "chat/{id}"
     const val MODELS = "models"
@@ -65,6 +66,7 @@ val NAV_ROUTES: List<String> = listOf(
     NavRoutes.FILE_VIEW,
     NavRoutes.FILE_EDIT,
     NavRoutes.MATRIX_ROOM,
+    NavRoutes.MATRIX_ROOM_SETTINGS,
     NavRoutes.ARCHIVED,
     NavRoutes.CHAT,
     NavRoutes.MODELS,

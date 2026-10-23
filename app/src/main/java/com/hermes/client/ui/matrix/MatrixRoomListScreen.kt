@@ -23,6 +23,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -215,6 +216,14 @@ private fun RoomRow(room: MatrixRoomSummary, nowMs: Long, onClick: () -> Unit) {
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
                 )
+                if (room.isFavourite) {
+                    Icon(
+                        Icons.Rounded.Star,
+                        contentDescription = "Favourite",
+                        modifier = Modifier.padding(start = 6.dp).size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 if (room.isEncrypted) {
                     Icon(
                         Icons.Rounded.Lock,
@@ -238,6 +247,10 @@ private fun RoomRow(room: MatrixRoomSummary, nowMs: Long, onClick: () -> Unit) {
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (room.unread == 0L && room.isMarkedUnread) {
+                // Flagged unread by hand: a plain dot, no count.
+                Box(Modifier.size(12.dp).clip(CircleShape).background(LocalProfileAccent.current.accent))
+            }
             if (room.unread > 0) {
                 val badge = LocalProfileAccent.current
                 Box(

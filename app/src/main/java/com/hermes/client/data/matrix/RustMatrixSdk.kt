@@ -1,6 +1,7 @@
 package com.hermes.client.data.matrix
 
 import android.content.Context
+import android.util.Log
 import com.hermes.client.data.diagnostics.DebugLog
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
@@ -9,8 +10,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -41,6 +44,7 @@ import org.matrix.rustcomponents.sdk.MsgLikeKind
 import org.matrix.rustcomponents.sdk.OtherState
 import org.matrix.rustcomponents.sdk.PaginationStatusListener
 import org.matrix.rustcomponents.sdk.ProfileDetails
+import org.matrix.rustcomponents.sdk.MembershipState
 import org.matrix.rustcomponents.sdk.Room
 import org.matrix.rustcomponents.sdk.RoomList
 import org.matrix.rustcomponents.sdk.RoomListDynamicEntriesController
@@ -64,6 +68,8 @@ import org.matrix.rustcomponents.sdk.SlidingSyncVersion
 import org.matrix.rustcomponents.sdk.SlidingSyncVersionBuilder
 import org.matrix.rustcomponents.sdk.SqliteStoreBuilder
 import org.matrix.rustcomponents.sdk.SyncService
+import org.matrix.rustcomponents.sdk.SyncServiceState
+import org.matrix.rustcomponents.sdk.SyncServiceStateObserver
 import org.matrix.rustcomponents.sdk.TaskHandle
 import org.matrix.rustcomponents.sdk.Timeline
 import org.matrix.rustcomponents.sdk.TimelineDiff
@@ -74,6 +80,7 @@ import org.matrix.rustcomponents.sdk.VirtualTimelineItem
 import org.matrix.rustcomponents.sdk.messageEventContentFromMarkdown
 import uniffi.matrix_sdk.PaginationStatus
 import uniffi.matrix_sdk_base.EncryptionState
+import uniffi.ruma_events.StateEventType
 
 /** [MatrixSdk] over the matrix-rust-sdk UniFFI bindings. */
 class RustMatrixSdk(private val context: Context) : MatrixSdk {
@@ -126,6 +133,8 @@ private class RustClientHandle(private val client: Client) : MatrixClientHandle 
         rawUpdates.receiveAsFlow().map { updates -> updates.map { it.toSummaryDiff() } }
 
     private var syncService: SyncService? = null
+    private var syncStateHandle: TaskHandle? = null
+    private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var roomListService: RoomListService? = null
     private var roomList: RoomList? = null
     private var listResult: RoomListEntriesWithDynamicAdaptersResult? = null
@@ -158,8 +167,18 @@ private class RustClientHandle(private val client: Client) : MatrixClientHandle 
 
     override suspend fun startSync() {
         requireOpen()
-        val sync = client.syncService().finish()
+        // Offline mode lets the SDK resume by itself once the network is back; the observer below
+        // restarts the service after a hard error, which would otherwise leave it stopped for good.
+        val sync = client.syncService().withOfflineMode().finish()
         syncService = sync
+        syncStateHandle = sync.state(
+            object : SyncServiceStateObserver {
+                override fun onUpdate(state: SyncServiceState) {
+                    Log.i(SYNC_TAG, "sync state: $state")
+                    if (state == SyncServiceState.ERROR && !closed) restartSyncLater(sync)
+                }
+            },
+        )
         val svc = sync.roomListService()
         roomListService = svc
         val list = svc.allRooms()
@@ -178,6 +197,20 @@ private class RustClientHandle(private val client: Client) : MatrixClientHandle 
         controller = ctl
         ctl.setFilter(RoomListEntriesDynamicFilterKind.NonLeft)
         sync.start()
+    }
+
+    private fun restartSyncLater(sync: SyncService) {
+        syncScope.launch {
+            delay(SYNC_RESTART_DELAY_MS)
+            if (closed) return@launch
+            try {
+                sync.start()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(SYNC_TAG, "sync restart failed: ${e.javaClass.simpleName}")
+            }
+        }
     }
 
     override suspend fun stopSync() {
@@ -210,6 +243,103 @@ private class RustClientHandle(private val client: Client) : MatrixClientHandle 
         DebugLog.log("matrix-error", "create room failed: ${e.javaClass.simpleName}")
         null
     }
+
+    /**
+     * Runs [block] against the room, destroying the SDK object afterwards. Any failure (unknown
+     * room, server refusal, closed client) reads as [whenFailed]; only error class names are logged.
+     */
+    private suspend fun <T> withRoom(roomId: String, whenFailed: T, block: suspend (Room) -> T): T = try {
+        requireOpen()
+        val room = client.getRoom(roomId)
+        if (room == null) {
+            whenFailed
+        } else {
+            try {
+                block(room)
+            } finally {
+                runCatching { room.destroy() }
+            }
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        DebugLog.log("matrix-error", "room action failed: ${e.javaClass.simpleName}")
+        whenFailed
+    }
+
+    override suspend fun roomDetails(roomId: String): MatrixRoomDetails? = withRoom(roomId, null) { room ->
+        val info = room.roomInfo()
+        val levels = room.getPowerLevels()
+        try {
+            val me = room.ownUserId()
+            val canKick = levels.canOwnUserKick()
+            MatrixRoomDetails(
+                name = info.displayName ?: info.rawName ?: info.id,
+                topic = info.topic.orEmpty(),
+                isDirect = info.isDirect,
+                isFavourite = info.isFavourite,
+                isMarkedUnread = info.isMarkedUnread,
+                canRename = levels.canOwnUserSendState(StateEventType.RoomName),
+                canSetTopic = levels.canOwnUserSendState(StateEventType.RoomTopic),
+                canInvite = levels.canOwnUserInvite(),
+                members = room.listMembers(me, canKick),
+            )
+        } finally {
+            runCatching { levels.destroy() }
+            info.destroy()
+        }
+    }
+
+    /** Joined and invited members; the rest (left, banned) are not shown. */
+    private suspend fun Room.listMembers(me: String, canKick: Boolean): List<MatrixRoomMember> {
+        val iterator = members()
+        try {
+            val out = mutableListOf<MatrixRoomMember>()
+            while (true) {
+                val chunk = iterator.nextChunk(MEMBER_CHUNK) ?: break
+                if (chunk.isEmpty()) break
+                for (member in chunk) {
+                    // RoomMember is a plain data record: nothing to destroy.
+                    val state = member.membership
+                    val joined = state is MembershipState.Join
+                    val invited = state is MembershipState.Invite
+                    if (joined || invited) {
+                        out += MatrixRoomMember(
+                            userId = member.userId,
+                            displayName = member.displayName?.takeIf { it.isNotBlank() },
+                            isMe = member.userId == me,
+                            isInvited = invited,
+                            canRemove = canKick && member.userId != me,
+                        )
+                    }
+                }
+            }
+            return out.sortedWith(compareBy({ !it.isMe }, { it.isInvited }, { (it.displayName ?: it.userId).lowercase() }))
+        } finally {
+            runCatching { iterator.destroy() }
+        }
+    }
+
+    override suspend fun renameRoom(roomId: String, name: String): Boolean =
+        withRoom(roomId, false) { it.setName(name); true }
+
+    override suspend fun setRoomTopic(roomId: String, topic: String): Boolean =
+        withRoom(roomId, false) { it.setTopic(topic); true }
+
+    override suspend fun inviteToRoom(roomId: String, userId: String): Boolean =
+        withRoom(roomId, false) { it.inviteUserById(userId); true }
+
+    override suspend fun removeFromRoom(roomId: String, userId: String): Boolean =
+        withRoom(roomId, false) { it.kickUser(userId, null); true }
+
+    override suspend fun leaveRoom(roomId: String): Boolean =
+        withRoom(roomId, false) { it.leave(); true }
+
+    override suspend fun setRoomFavourite(roomId: String, favourite: Boolean): Boolean =
+        withRoom(roomId, false) { it.setIsFavourite(favourite, null); true }
+
+    override suspend fun setRoomMarkedUnread(roomId: String, unread: Boolean): Boolean =
+        withRoom(roomId, false) { it.setUnreadFlag(unread); true }
 
     override suspend fun getVerificationController(): MatrixVerificationHandle? = try {
         requireOpen()
@@ -275,6 +405,8 @@ private class RustClientHandle(private val client: Client) : MatrixClientHandle 
         closed = true
         // Order: cancel subscriptions, stop sync, then destroy children before the client.
         runCatching { entriesHandle?.cancel() }
+        runCatching { syncStateHandle?.cancel() }
+        syncScope.cancel()
         try {
             syncService?.stop()
         } catch (e: CancellationException) {
@@ -296,6 +428,7 @@ private class RustClientHandle(private val client: Client) : MatrixClientHandle 
         runCatching { listResult?.destroy() }
         runCatching { roomList?.destroy() }
         runCatching { roomListService?.destroy() }
+        runCatching { syncStateHandle?.destroy() }
         runCatching { syncService?.destroy() }
         runCatching { client.destroy() }
         entriesHandle = null
@@ -304,11 +437,21 @@ private class RustClientHandle(private val client: Client) : MatrixClientHandle 
         roomList = null
         roomListService = null
         syncService = null
+        syncStateHandle = null
     }
 }
 
 /** Number of events the timeline loads on the first page and on every repagination. */
 private const val TIMELINE_PAGE_SIZE = 50
+
+/** Members fetched per call when listing a room's people. */
+private const val MEMBER_CHUNK = 100u
+
+/** Logcat tag for sync state changes (state names only, nothing sensitive). */
+private const val SYNC_TAG = "MatrixSync"
+
+/** Pause before restarting a sync service that stopped on an error. */
+private const val SYNC_RESTART_DELAY_MS = 5_000L
 
 /** Monotonic suffix for items whose SDK `uniqueId` is missing, so row keys never collide. */
 private val FALLBACK_ID_COUNTER = java.util.concurrent.atomic.AtomicLong(0)
@@ -832,6 +975,8 @@ private suspend fun Room.toSummary(): MatrixRoomSummary {
                 lastMessageSender = activity.sender,
                 lastActivityTs = activity.ts,
                 avatarLetter = avatarLetterFor(name),
+                isFavourite = info.isFavourite,
+                isMarkedUnread = info.isMarkedUnread,
             )
         } finally {
             info.destroy()

@@ -20,11 +20,14 @@ sealed interface RoomListUiState {
 }
 
 /**
- * Newest last-message time first. Equal times keep the SDK order (sort is stable); rooms without
- * any activity sort last.
+ * Favourites first, then newest last-message time first. Equal times keep the SDK order (sort is
+ * stable); rooms without any activity sort last within their group.
  */
 fun sortByRecency(rooms: List<MatrixRoomSummary>): List<MatrixRoomSummary> =
-    rooms.sortedByDescending { it.lastActivityTs ?: Long.MIN_VALUE }
+    rooms.sortedWith(
+        compareByDescending<MatrixRoomSummary> { it.isFavourite }
+            .thenByDescending { it.lastActivityTs ?: Long.MIN_VALUE },
+    )
 
 /** Case-insensitive match on the room name or its last message preview. A blank query keeps everything. */
 fun filterRooms(rooms: List<MatrixRoomSummary>, query: String): List<MatrixRoomSummary> {

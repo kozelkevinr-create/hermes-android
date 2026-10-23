@@ -119,6 +119,39 @@ class MatrixClientManager(
     }
 
     /**
+     * Runs a room-management call under the live session, or returns [whenOffline] without one.
+     * Same lock discipline as [createRoom]: a logout can never destroy the client mid-call.
+     */
+    private suspend fun <T> withLiveHandle(whenOffline: T, call: suspend (MatrixClientHandle) -> T): T {
+        if (_state.value !is MatrixState.Ready) return whenOffline
+        return lock.withLock {
+            withContext(dispatcher) { handle?.let { call(it) } ?: whenOffline }
+        }
+    }
+
+    suspend fun roomDetails(roomId: String): MatrixRoomDetails? = withLiveHandle(null) { it.roomDetails(roomId) }
+
+    suspend fun renameRoom(roomId: String, name: String): Boolean =
+        withLiveHandle(false) { it.renameRoom(roomId, name) }
+
+    suspend fun setRoomTopic(roomId: String, topic: String): Boolean =
+        withLiveHandle(false) { it.setRoomTopic(roomId, topic) }
+
+    suspend fun inviteToRoom(roomId: String, userId: String): Boolean =
+        withLiveHandle(false) { it.inviteToRoom(roomId, userId) }
+
+    suspend fun removeFromRoom(roomId: String, userId: String): Boolean =
+        withLiveHandle(false) { it.removeFromRoom(roomId, userId) }
+
+    suspend fun leaveRoom(roomId: String): Boolean = withLiveHandle(false) { it.leaveRoom(roomId) }
+
+    suspend fun setRoomFavourite(roomId: String, favourite: Boolean): Boolean =
+        withLiveHandle(false) { it.setRoomFavourite(roomId, favourite) }
+
+    suspend fun setRoomMarkedUnread(roomId: String, unread: Boolean): Boolean =
+        withLiveHandle(false) { it.setRoomMarkedUnread(roomId, unread) }
+
+    /**
      * The session's SAS verification controller, created once per session and closed with the
      * client in [teardown]. Null without a live session or when creation failed. Same lock
      * discipline as [openTimeline].

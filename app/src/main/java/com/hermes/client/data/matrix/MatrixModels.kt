@@ -15,6 +15,10 @@ data class MatrixRoomSummary(
     val lastActivityTs: Long? = null,
     /** Single uppercase letter for the row's avatar circle. */
     val avatarLetter: String = "#",
+    /** Pinned by the user; favourites sort to the top of the room list. */
+    val isFavourite: Boolean = false,
+    /** Flagged unread by the user (a dot, independent of [unread]; never raises a notification). */
+    val isMarkedUnread: Boolean = false,
 )
 
 /**
