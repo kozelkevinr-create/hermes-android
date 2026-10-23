@@ -69,6 +69,8 @@ data class ProfileEditState(
     val providers: List<ModelProviderDto> = emptyList(),
     val tools: List<ToolsetDto> = emptyList(),
     val mcp: List<McpServerDto> = emptyList(),
+    val mcpError: String? = null,
+    val toolsError: String? = null,
 ) {
     val shownSkills: List<SkillDto>
         get() = if (skillQuery.isBlank()) skills
@@ -93,14 +95,18 @@ class ProfileEditViewModel @Inject constructor(
         _state.value = _state.value.copy(loading = true)
         val soul = runCatching { rest.profileSoul(name) }
         val skills = runCatching { rest.skills(name) }.getOrDefault(emptyList()).sortedBy { it.name }
-        val tools = runCatching { rest.toolsets(name) }.getOrDefault(emptyList()).sortedBy { it.label ?: it.name }
-        val mcp = runCatching { rest.mcpServers(name) }.getOrDefault(emptyList())
+        val toolsResult = runCatching { rest.toolsets(name) }
+        val tools = toolsResult.getOrDefault(emptyList()).sortedBy { it.label ?: it.name }
+        val mcpResult = runCatching { rest.mcpServers(name) }
+        val mcp = mcpResult.getOrDefault(emptyList())
         val description = profileManager.list.value.firstOrNull { it.name == name }?.description.orEmpty()
         _state.value = ProfileEditState(
             loading = false,
             description = description, savedDescription = description,
             soul = soul.getOrDefault(""), savedSoul = soul.getOrDefault(""),
             skills = skills, tools = tools, mcp = mcp,
+            toolsError = toolsResult.exceptionOrNull()?.message ?: "Could not load tools".takeIf { toolsResult.isFailure },
+            mcpError = mcpResult.exceptionOrNull()?.let { "Could not load MCP servers: ${it.message}" },
             message = soul.exceptionOrNull()?.let { "Could not load SOUL.md: ${it.message}" },
         )
     }
@@ -312,12 +318,16 @@ fun ProfileEditScreen(onBack: () -> Unit, vm: ProfileEditViewModel = hiltViewMod
                     HorizontalDivider()
                     SectionHeader(
                         title = "MCP servers",
-                        summary = if (state.mcp.isEmpty()) "none configured" else "${state.mcp.count { it.enabled }} of ${state.mcp.size} enabled",
+                        summary = if (state.mcpError != null) "failed to load"
+                        else if (state.mcp.isEmpty()) "none configured" else "${state.mcp.count { it.enabled }} of ${state.mcp.size} enabled",
                         expanded = mcpOpen,
                         onToggle = { mcpOpen = !mcpOpen },
                     )
                 }
                 if (mcpOpen) {
+                    state.mcpError?.let { err ->
+                        item { Text(err, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                    }
                     items(state.mcp, key = { "mcp:${it.name}" }) { m ->
                         val fromPlugin = m.source == "plugin"
                         ListItem(
