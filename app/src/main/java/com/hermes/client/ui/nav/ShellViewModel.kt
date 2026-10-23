@@ -52,10 +52,12 @@ class ShellViewModel @Inject constructor(
         cloneFrom: String?,
         description: String,
         keepSkills: List<String>,
+        provider: String?,
+        model: String?,
         onDone: (String) -> Unit,
     ) = viewModelScope.launch {
             _createError.value = null
-            runCatching { rest.createProfile(name, cloneFrom, description, keepSkills) }
+            runCatching { rest.createProfile(name, cloneFrom, description, keepSkills, provider, model) }
                 .onSuccess { profileManager.refresh(); onDone(name) }
                 .onFailure { _createError.value = it.message ?: "Could not create profile" }
         }
@@ -63,6 +65,9 @@ class ShellViewModel @Inject constructor(
     /** Names of the skills a new profile could start with (the dashboard profile's set). */
     suspend fun availableSkills(): List<String> =
         runCatching { rest.skills().map { it.name }.sorted() }.getOrDefault(emptyList())
+
+    /** Provider and model catalog for the new-profile model picker. */
+    suspend fun modelProviders() = runCatching { rest.modelProviders() }.getOrDefault(emptyList())
 
     fun clearCreateError() { _createError.value = null }
 

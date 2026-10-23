@@ -276,11 +276,14 @@ class HermesRestApi(
         cloneFrom: String?,
         description: String?,
         keepSkills: List<String> = emptyList(),
+        provider: String? = null,
+        model: String? = null,
     ) = withContext(Dispatchers.IO) {
         val obj = buildJsonObject {
             put("name", name)
             if (!cloneFrom.isNullOrBlank()) put("clone_from", cloneFrom)
             if (!description.isNullOrBlank()) put("description", description)
+            if (!provider.isNullOrBlank() && !model.isNullOrBlank()) { put("provider", provider); put("model", model) }
             // Non-empty means "keep only these"; the gateway disables the other seeded skills.
             if (keepSkills.isNotEmpty()) put("keep_skills", kotlinx.serialization.json.JsonArray(keepSkills.map { kotlinx.serialization.json.JsonPrimitive(it) }))
         }

@@ -593,7 +593,7 @@ private fun SectionHeader(title: String, summary: String, expanded: Boolean, onT
 }
 
 @Composable
-private fun ModelPickerDialog(
+internal fun ModelPickerDialog(
     providers: List<ModelProviderDto>,
     onPick: (provider: String, model: String) -> Unit,
     onDismiss: () -> Unit,

@@ -115,8 +115,9 @@ fun ProfilesScreen(
         NewProfileDialog(
             existing = profiles.map { it.name },
             loadSkills = vm::availableSkills,
+            loadModels = vm::modelProviders,
             error = createError,
-            onCreate = { name, from, desc, skills -> vm.createProfile(name, from, desc, skills) { creating = false; onEdit(it) } },
+            onCreate = { name, from, desc, skills, model -> vm.createProfile(name, from, desc, skills, model?.first, model?.second) { creating = false; onEdit(it) } },
             onDismiss = { creating = false; vm.clearCreateError() },
         )
     }
@@ -195,7 +196,8 @@ private fun NewProfileDialog(
     existing: List<String>,
     error: String?,
     loadSkills: suspend () -> List<String>,
-    onCreate: (name: String, cloneFrom: String?, description: String, keepSkills: List<String>) -> Unit,
+    loadModels: suspend () -> List<com.hermes.client.data.network.ModelProviderDto>,
+    onCreate: (name: String, cloneFrom: String?, description: String, keepSkills: List<String>, model: Pair<String, String>?) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var name by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
@@ -206,6 +208,10 @@ private fun NewProfileDialog(
     var allSkills by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<List<String>>(emptyList()) }
     var pickSkills by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(pickSkills) { if (pickSkills && allSkills.isEmpty()) allSkills = loadSkills() }
+    var model by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<Pair<String, String>?>(null) }
+    var providers by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<List<com.hermes.client.data.network.ModelProviderDto>>(emptyList()) }
+    var pickingModel by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(pickingModel) { if (pickingModel && providers.isEmpty()) providers = loadModels() }
     // Profile ids become directory names and CLI aliases.
     val valid = Regex("[a-z0-9][a-z0-9_-]{0,63}").matches(name)
     androidx.compose.material3.AlertDialog(
@@ -237,6 +243,9 @@ private fun NewProfileDialog(
                         androidx.compose.material3.RadioButton(selected = cloneFrom == src, onClick = { cloneFrom = src })
                         Text(src?.let { "Copy of $it" } ?: "Blank")
                     }
+                }
+                androidx.compose.material3.OutlinedButton(onClick = { pickingModel = true }) {
+                    Text(model?.let { "${it.first} / ${it.second}" } ?: "Choose default model (optional)")
                 }
                 androidx.compose.foundation.layout.Row(
                     verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
@@ -276,11 +285,18 @@ private fun NewProfileDialog(
         },
         confirmButton = {
             androidx.compose.material3.TextButton(
-                onClick = { onCreate(name, cloneFrom, description.trim(), chosen?.toList().orEmpty()) },
+                onClick = { onCreate(name, cloneFrom, description.trim(), chosen?.toList().orEmpty(), model) },
                 // The gateway reads an empty keep-list as "keep everything", so require a pick.
                 enabled = valid && (!pickSkills || !chosen.isNullOrEmpty()),
             ) { Text("Create") }
         },
         dismissButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+    if (pickingModel) {
+        ModelPickerDialog(
+            providers = providers,
+            onPick = { provider, m -> model = provider to m; pickingModel = false },
+            onDismiss = { pickingModel = false },
+        )
+    }
 }
