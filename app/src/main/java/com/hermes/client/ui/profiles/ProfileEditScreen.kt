@@ -78,6 +78,7 @@ data class ProfileEditState(
     val mcpError: String? = null,
     /** Server being tested and its result; the result is null while the probe runs. */
     val testing: Pair<String, McpTestResultDto?>? = null,
+    val copying: Boolean = false,
     val catalog: List<McpCatalogEntryDto>? = null,
     /** Error from the last add, delete or install, shown inside its dialog. */
     val mcpActionError: String? = null,
@@ -187,6 +188,54 @@ class ProfileEditViewModel @Inject constructor(
 
     fun dismissTest() { _state.value = _state.value.copy(testing = null) }
 
+    /**
+     * Make this profile match [source] for the chosen parts. Skills and tools are copied as on/off
+     * state, MCP servers as their command, args or url (the gateway hides environment values, so
+     * those are not copied), and the model as provider plus model id.
+     */
+    fun copyFrom(source: String, skills: Boolean, tools: Boolean, mcp: Boolean, model: Boolean) = viewModelScope.launch {
+        _state.value = _state.value.copy(copying = true)
+        val done = mutableListOf<String>()
+        val failed = mutableListOf<String>()
+        suspend fun step(label: String, block: suspend () -> Int) {
+            runCatching { block() }
+                .onSuccess { done += "$label ($it)" }
+                .onFailure { failed += "$label: ${it.message}" }
+        }
+        if (skills) step("skills") {
+            val mine = rest.skills(name).associate { it.name to it.enabled }
+            rest.skills(source).filter { mine[it.name] != null && mine[it.name] != it.enabled }
+                .onEach { rest.toggleSkill(it.name, it.enabled, name) }.size
+        }
+        if (tools) step("tools") {
+            val mine = rest.toolsets(name).associate { it.name to it.enabled }
+            rest.toolsets(source).filter { mine[it.name] != null && mine[it.name] != it.enabled }
+                .onEach { rest.toggleToolset(it.name, it.enabled, name) }.size
+        }
+        if (mcp) step("MCP servers") {
+            val mine = rest.mcpServers(name).map { it.name }.toSet()
+            rest.mcpServers(source).filter { it.source != "plugin" && it.name !in mine }.onEach {
+                rest.addMcpServer(name, it.name, it.url, it.command, it.args, emptyMap())
+                if (!it.enabled) rest.toggleMcpServer(it.name, false, name)
+            }.size
+        }
+        if (model) step("model") {
+            val info = profileManager.list.value.firstOrNull { it.name == source }
+            val m = info?.model; val prov = info?.provider
+            if (m.isNullOrBlank() || prov.isNullOrBlank()) throw IllegalStateException("$source has no model set")
+            rest.setProfileModel(name, prov, m)
+            1
+        }
+        profileManager.refresh()
+        val summary = buildString {
+            append("Copied from $source: ").append(done.joinToString().ifBlank { "nothing" })
+            if (failed.isNotEmpty()) append(". Failed: ").append(failed.joinToString("; "))
+        }
+        // Reload so the lists show what actually landed.
+        load().join()
+        _state.value = _state.value.copy(copying = false, message = summary)
+    }
+
     fun deleteMcp(server: McpServerDto) = viewModelScope.launch {
         runCatching { rest.deleteMcpServer(server.name, name) }
             .onSuccess { reloadMcp(); _state.value = _state.value.copy(message = "${server.name} removed") }
@@ -270,6 +319,7 @@ fun ProfileEditScreen(onBack: () -> Unit, vm: ProfileEditViewModel = hiltViewMod
     var skillsOpen by rememberSaveable { mutableStateOf(false) }
     var toolsOpen by rememberSaveable { mutableStateOf(false) }
     var mcpOpen by rememberSaveable { mutableStateOf(false) }
+    var copyingSettings by remember { mutableStateOf(false) }
     var addingMcp by remember { mutableStateOf(false) }
     var browsingCatalog by remember { mutableStateOf(false) }
     var removingMcp by remember { mutableStateOf<McpServerDto?>(null) }
@@ -317,6 +367,13 @@ fun ProfileEditScreen(onBack: () -> Unit, vm: ProfileEditViewModel = hiltViewMod
                         enabled = state.dirty && !state.saving,
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text(if (state.saving) "Saving…" else "Save description and SOUL") }
+                }
+                item {
+                    OutlinedButton(
+                        onClick = { copyingSettings = true },
+                        enabled = !state.copying && profiles.size > 1,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(if (state.copying) "Copying…" else "Copy settings from another profile") }
                 }
                 item {
                     HorizontalDivider()
@@ -488,6 +545,14 @@ fun ProfileEditScreen(onBack: () -> Unit, vm: ProfileEditViewModel = hiltViewMod
             text = { Text("This deletes the server from ${vm.name}'s config. Other profiles are not affected.") },
             confirmButton = { TextButton(onClick = { removingMcp = null; vm.deleteMcp(m) }) { Text("Remove", color = MaterialTheme.colorScheme.error) } },
             dismissButton = { TextButton(onClick = { removingMcp = null }) { Text("Cancel") } },
+        )
+    }
+
+    if (copyingSettings) {
+        CopySettingsDialog(
+            sources = profiles.map { it.name }.filter { it != vm.name },
+            onCopy = { src, sk, tl, mc, md -> copyingSettings = false; vm.copyFrom(src, sk, tl, mc, md) },
+            onDismiss = { copyingSettings = false },
         )
     }
 
@@ -697,5 +762,57 @@ private fun McpCatalogDialog(
                 Text(if (selected != null) "Back" else "Close")
             }
         },
+    )
+}
+
+@Composable
+private fun CopySettingsDialog(
+    sources: List<String>,
+    onCopy: (source: String, skills: Boolean, tools: Boolean, mcp: Boolean, model: Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var source by remember { mutableStateOf(sources.firstOrNull()) }
+    var skills by remember { mutableStateOf(true) }
+    var tools by remember { mutableStateOf(true) }
+    var mcp by remember { mutableStateOf(true) }
+    var model by remember { mutableStateOf(true) }
+    @Composable
+    fun check(label: String, value: Boolean, set: (Boolean) -> Unit) {
+        androidx.compose.foundation.layout.Row(
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            modifier = Modifier.clickable { set(!value) },
+        ) { androidx.compose.material3.Checkbox(value, null); Text(label) }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Copy settings") },
+        text = {
+            Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState())) {
+                Text("From", style = MaterialTheme.typography.labelMedium)
+                sources.forEach { src ->
+                    androidx.compose.foundation.layout.Row(
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        modifier = Modifier.clickable { source = src },
+                    ) { androidx.compose.material3.RadioButton(selected = source == src, onClick = { source = src }); Text(src) }
+                }
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                check("Skills on/off", skills) { skills = it }
+                check("Tools on/off", tools) { tools = it }
+                check("MCP servers (missing ones are added)", mcp) { mcp = it }
+                check("Default model", model) { model = it }
+                Text(
+                    "Existing settings here are overwritten to match. MCP environment values are not copied; the gateway does not expose them.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = source != null && (skills || tools || mcp || model),
+                onClick = { onCopy(source!!, skills, tools, mcp, model) },
+            ) { Text("Copy") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
