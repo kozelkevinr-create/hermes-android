@@ -72,6 +72,7 @@ val NAV_ROUTES: List<String> = listOf(
     NavRoutes.CHAT,
     NavRoutes.MODELS,
     NavRoutes.PROFILES,
+    NavRoutes.PROFILE_EDIT,
     NavRoutes.CRON,
     NavRoutes.CRON_DETAIL,
     NavRoutes.CRON_EDIT,
