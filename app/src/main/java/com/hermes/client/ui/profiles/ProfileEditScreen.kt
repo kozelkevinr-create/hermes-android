@@ -43,6 +43,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.hermes.client.data.network.HermesRestApi
+import com.hermes.client.data.network.HubSkillDto
 import com.hermes.client.data.network.McpServerDto
 import com.hermes.client.data.network.ModelProviderDto
 import com.hermes.client.data.network.ToolsetDto
@@ -66,6 +67,9 @@ data class ProfileEditState(
     val deleted: Boolean = false,
     val skills: List<SkillDto> = emptyList(),
     val skillQuery: String = "",
+    val hub: List<HubSkillDto>? = null,
+    val hubError: String? = null,
+    val hubInstalling: Set<String> = emptySet(),
     val providers: List<ModelProviderDto> = emptyList(),
     val tools: List<ToolsetDto> = emptyList(),
     val mcp: List<McpServerDto> = emptyList(),
@@ -109,6 +113,41 @@ class ProfileEditViewModel @Inject constructor(
             mcpError = mcpResult.exceptionOrNull()?.let { "Could not load MCP servers: ${it.message}" },
             message = soul.exceptionOrNull()?.let { "Could not load SOUL.md: ${it.message}" },
         )
+    }
+
+    fun searchHub(query: String) = viewModelScope.launch {
+        _state.value = _state.value.copy(hub = null, hubError = null)
+        runCatching { rest.hubSkills(query, name) }
+            .onSuccess { _state.value = _state.value.copy(hub = it) }
+            .onFailure { _state.value = _state.value.copy(hub = emptyList(), hubError = it.message ?: "Search failed") }
+    }
+
+    /** Install runs in the background on the gateway; poll the skill list until it appears. */
+    fun installHub(skill: HubSkillDto) = viewModelScope.launch {
+        _state.value = _state.value.copy(hubInstalling = _state.value.hubInstalling + skill.identifier, hubError = null)
+        val started = runCatching { rest.installHubSkill(skill.identifier, name) }
+        started.onFailure {
+            _state.value = _state.value.copy(hubInstalling = _state.value.hubInstalling - skill.identifier, hubError = it.message ?: "Install failed")
+        }
+        if (started.isSuccess) {
+            repeat(15) {
+                kotlinx.coroutines.delay(2000)
+                val skills = runCatching { rest.skills(name) }.getOrNull() ?: return@repeat
+                if (skills.any { it.name == skill.name }) {
+                    _state.value = _state.value.copy(
+                        skills = skills.sortedBy { it.name },
+                        hub = _state.value.hub?.map { if (it.identifier == skill.identifier) it.copy(installed = true) else it },
+                        hubInstalling = _state.value.hubInstalling - skill.identifier,
+                        message = "${skill.name} installed",
+                    )
+                    return@launch
+                }
+            }
+            _state.value = _state.value.copy(
+                hubInstalling = _state.value.hubInstalling - skill.identifier,
+                message = "${skill.name} is still installing; reopen the profile to refresh",
+            )
+        }
     }
 
     fun onSkillQuery(q: String) { _state.value = _state.value.copy(skillQuery = q) }
@@ -205,6 +244,7 @@ fun ProfileEditScreen(onBack: () -> Unit, vm: ProfileEditViewModel = hiltViewMod
     var skillsOpen by rememberSaveable { mutableStateOf(false) }
     var toolsOpen by rememberSaveable { mutableStateOf(false) }
     var mcpOpen by rememberSaveable { mutableStateOf(false) }
+    var browsingHub by remember { mutableStateOf(false) }
     LaunchedEffect(state.message) { state.message?.let { snackbar.showSnackbar(it); vm.clearMessage() } }
     LaunchedEffect(state.deleted) { if (state.deleted) onBack() }
 
@@ -280,6 +320,9 @@ fun ProfileEditScreen(onBack: () -> Unit, vm: ProfileEditViewModel = hiltViewMod
                 }
                 if (skillsOpen) {
                     item {
+                        OutlinedButton(onClick = { vm.searchHub(""); browsingHub = true }) { Text("Find more skills") }
+                    }
+                    item {
                         OutlinedTextField(
                             value = state.skillQuery,
                             onValueChange = vm::onSkillQuery,
@@ -352,6 +395,17 @@ fun ProfileEditScreen(onBack: () -> Unit, vm: ProfileEditViewModel = hiltViewMod
                 }
             }
         }
+    }
+
+    if (browsingHub) {
+        SkillHubDialog(
+            results = state.hub,
+            error = state.hubError,
+            installing = state.hubInstalling,
+            onSearch = vm::searchHub,
+            onInstall = vm::installHub,
+            onDismiss = { browsingHub = false },
+        )
     }
 
     if (pickingModel) {
@@ -427,5 +481,65 @@ private fun ModelPickerDialog(
         },
         confirmButton = {},
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun SkillHubDialog(
+    results: List<HubSkillDto>?,
+    error: String?,
+    installing: Set<String>,
+    onSearch: (String) -> Unit,
+    onInstall: (HubSkillDto) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var query by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Skills hub") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = { Text("Search the hub (blank: official)") },
+                    singleLine = true,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { onSearch(query) }),
+                    trailingIcon = { TextButton(onClick = { onSearch(query) }) { Text("Search") } },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                when {
+                    results == null -> Text("Loading…", modifier = Modifier.padding(top = 8.dp))
+                    results.isEmpty() && error == null -> Text("No skills found.", modifier = Modifier.padding(top = 8.dp))
+                    else -> LazyColumn(Modifier.height(340.dp)) {
+                        items(results, key = { it.identifier }) { sk ->
+                            ListItem(
+                                headlineContent = { Text(sk.name) },
+                                supportingContent = {
+                                    Column {
+                                        sk.description?.takeIf { it.isNotBlank() }?.let { Text(it, maxLines = 2) }
+                                        Text(
+                                            listOfNotNull(sk.category, sk.source, sk.trustLevel).joinToString(" · "),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                },
+                                trailingContent = {
+                                    when {
+                                        sk.installed -> Text("installed", style = MaterialTheme.typography.labelSmall)
+                                        sk.identifier in installing -> Text("installing…", style = MaterialTheme.typography.labelSmall)
+                                        else -> TextButton(onClick = { onInstall(sk) }) { Text("Install") }
+                                    }
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
     )
 }

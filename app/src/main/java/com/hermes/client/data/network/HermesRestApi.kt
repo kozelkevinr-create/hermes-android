@@ -384,6 +384,31 @@ class HermesRestApi(
         }
     }
 
+    /** Blank [query] lists the official catalog; otherwise searches every configured hub source. */
+    suspend fun hubSkills(query: String, profile: String?): List<HubSkillDto> =
+        if (query.isBlank()) {
+            get<HubOfficialDto>("/api/skills/hub/official${profileParam(profile, first = true)}").skills
+        } else {
+            val q = java.net.URLEncoder.encode(query.trim(), "UTF-8")
+            val r = get<HubSearchDto>("/api/skills/hub/search?q=$q&limit=30${profileParam(profile)}")
+            val installed = r.installed.keys
+            r.results.map { it.copy(installed = it.installed || it.identifier in installed) }
+        }
+
+    /** Starts the install on the gateway as a background process; it is not finished when this returns. */
+    suspend fun installHubSkill(identifier: String, profile: String?) = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            put("identifier", identifier)
+            if (!profile.isNullOrBlank()) put("profile", profile)
+        }.toString().toRequestBody("application/json".toMediaType())
+        okHttp.newCall(builder("/api/skills/hub/install").post(payload).build()).execute().use { resp ->
+            if (!resp.isSuccessful) {
+                val detail = runCatching { json.decodeFromString<JsonObject>(resp.body?.string().orEmpty())["detail"]?.jsonPrimitive?.content }.getOrNull()
+                throw HermesApiException(resp.code, detail ?: "install failed (HTTP ${resp.code})")
+            }
+        }
+    }
+
     suspend fun toolsets(profile: String? = null): List<ToolsetDto> =
         get("/api/tools/toolsets${profileParam(profile, first = true)}")
 
