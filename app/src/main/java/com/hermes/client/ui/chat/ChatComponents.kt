@@ -235,6 +235,7 @@ private fun UserBubble(msg: ChatMessage, onEditResend: (String) -> Unit, highlig
     else MaterialTheme.colorScheme.primaryContainer
     val accent = LocalProfileAccent.current.accent
     val userShape = com.hermes.client.ui.theme.UserBubbleShape
+    val compact = com.hermes.client.ui.theme.LocalChatCompact.current
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         Box {
             Column(
@@ -244,7 +245,7 @@ private fun UserBubble(msg: ChatMessage, onEditResend: (String) -> Unit, highlig
                     .clip(userShape)
                     .background(bg)
                     .then(if (highlighted) Modifier.background(accent.copy(alpha = 0.18f)).border(1.5.dp, accent, userShape) else Modifier)
-                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                    .padding(horizontal = if (compact) 10.dp else 14.dp, vertical = if (compact) 6.dp else 10.dp)
                     .combinedClickable(onClick = {}, onLongClick = { menuOpen = true }),
             ) {
                 if (msg.text.isNotBlank()) Text(msg.text, style = MaterialTheme.typography.bodyLarge)

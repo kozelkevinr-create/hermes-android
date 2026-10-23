@@ -56,3 +56,26 @@ val HermesTypography = Typography(
     labelMedium = mono(FontWeight.Medium, 11.5, 16, 0.8),
     labelSmall = mono(FontWeight.Medium, 10.5, 14, 0.8),
 )
+
+/**
+ * [HermesTypography] with every size and line height multiplied by [scale], optionally swapped to
+ * the device's default sans. Pure so it can be unit-tested.
+ */
+fun scaledTypography(scale: Float, systemFont: Boolean): Typography {
+    fun TextStyle.adapt() = copy(
+        fontSize = fontSize * scale,
+        lineHeight = lineHeight * scale,
+        fontFamily = if (systemFont) FontFamily.Default else fontFamily,
+    )
+    val t = HermesTypography
+    return Typography(
+        displayLarge = t.displayLarge.adapt(), displayMedium = t.displayMedium.adapt(),
+        displaySmall = t.displaySmall.adapt(), headlineLarge = t.headlineLarge.adapt(),
+        headlineMedium = t.headlineMedium.adapt(), headlineSmall = t.headlineSmall.adapt(),
+        titleLarge = t.titleLarge.adapt(), titleMedium = t.titleMedium.adapt(),
+        titleSmall = t.titleSmall.adapt(), bodyLarge = t.bodyLarge.adapt(),
+        bodyMedium = t.bodyMedium.adapt(), bodySmall = t.bodySmall.adapt(),
+        labelLarge = t.labelLarge.adapt(), labelMedium = t.labelMedium.adapt(),
+        labelSmall = t.labelSmall.adapt(),
+    )
+}

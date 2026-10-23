@@ -91,6 +91,7 @@ class MainActivity : ComponentActivity() {
         }
         setContent {
             val mode by settingsStore.themeMode.collectAsState(initial = ThemeMode.DARK)
+            val appearance by settingsStore.appearance.collectAsState(initial = com.hermes.client.data.repository.AppearancePrefs())
             val amber by settingsStore.amberPalette.collectAsState(initial = false)
             val soundOn by settingsStore.soundEffects.collectAsState(initial = false)
             com.hermes.client.ui.theme.SoundFx.enabled = soundOn
@@ -107,7 +108,7 @@ class MainActivity : ComponentActivity() {
             CompositionLocalProvider(
                 com.hermes.client.ui.theme.LocalProfileAccentOverrides provides accentOverrides,
             ) {
-                HermesTheme(darkTheme = dark, amber = amber, profile = activeProfile) {
+                HermesTheme(darkTheme = dark, amber = amber, appearance = appearance, profile = activeProfile) {
                     CompositionLocalProvider(LocalToolCallTechnical provides technical) {
                         // CRT scanlines over the whole app in the dark (Neon Night) theme.
                         Surface(Modifier.crtScanlines(enabled = dark)) {

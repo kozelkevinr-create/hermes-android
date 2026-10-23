@@ -2,6 +2,17 @@ package com.hermes.client.ui.settings
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.ui.Alignment
+import com.hermes.client.data.repository.AppearancePrefs
+import com.hermes.client.data.repository.FontStyle
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -32,6 +43,7 @@ fun AppearanceScreen(
     val technical by vm.toolCallTechnical.collectAsStateWithLifecycle()
     val amber by vm.amberPalette.collectAsStateWithLifecycle()
     val sound by vm.soundEffects.collectAsStateWithLifecycle()
+    val look by vm.appearance.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -41,7 +53,7 @@ fun AppearanceScreen(
             )
         },
     ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize().padding(16.dp)) {
+        Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
             Label("Color mode")
             val modes = listOf(ThemeMode.SYSTEM, ThemeMode.LIGHT, ThemeMode.DARK)
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 8.dp)) {
@@ -116,6 +128,58 @@ fun AppearanceScreen(
                     },
                 )
             }
+
+            HorizontalDivider()
+            Label("Surfaces", top = 24.dp)
+            SwitchRow(
+                "AMOLED black",
+                "Pure black backgrounds in dark mode. Saves power on OLED screens.",
+                look.amoled,
+            ) { vm.setAmoled(it) }
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                SwitchRow(
+                    "Material You colors",
+                    "Use your wallpaper's colors instead of the Hermes palette. Profile accents still apply.",
+                    look.dynamicColor,
+                ) { vm.setDynamicColor(it) }
+            }
+
+            Label("Text", top = 24.dp)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
+                Text("Size", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                Text("${(look.textScale * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium)
+            }
+            Slider(
+                value = look.textScale,
+                onValueChange = { vm.setTextScale((it * 20).toInt() / 20f) },
+                valueRange = AppearancePrefs.MIN_SCALE..AppearancePrefs.MAX_SCALE,
+            )
+            val fonts = listOf(FontStyle.TERMINAL to "Terminal", FontStyle.SYSTEM to "System")
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                fonts.forEachIndexed { i, (value, label) ->
+                    SegmentedButton(
+                        selected = look.fontStyle == value,
+                        onClick = { vm.setFontStyle(value) },
+                        shape = SegmentedButtonDefaults.itemShape(i, fonts.size),
+                    ) { Text(label) }
+                }
+            }
+            Text(
+                "The quick brown fox jumps over the lazy dog. 0123456789",
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+
+            Label("Chat", top = 24.dp)
+            SwitchRow(
+                "Compact bubbles",
+                "Tighter padding around your messages.",
+                look.compactChat,
+            ) { vm.setCompactChat(it) }
+
+            TextButton(onClick = { vm.resetAppearance() }, modifier = Modifier.padding(top = 16.dp)) {
+                Text("Reset surfaces, text and chat to defaults")
+            }
         }
     }
 }
@@ -128,4 +192,19 @@ private fun Label(text: String, top: androidx.compose.ui.unit.Dp = 0.dp) {
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(top = top),
     )
+}
+
+@Composable
+private fun SwitchRow(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(checked = checked, onCheckedChange = onChange)
+    }
 }
