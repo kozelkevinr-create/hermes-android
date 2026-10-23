@@ -384,7 +384,29 @@ class HermesRestApi(
         }
     }
 
-    suspend fun toolsets(): List<ToolsetDto> = get("/api/tools/toolsets")
+    suspend fun toolsets(profile: String? = null): List<ToolsetDto> =
+        get("/api/tools/toolsets${profileParam(profile, first = true)}")
+
+    suspend fun toggleToolset(name: String, enabled: Boolean, profile: String? = null) =
+        toggleProfileScoped("/api/tools/toolsets/${java.net.URLEncoder.encode(name, "UTF-8")}", enabled, profile)
+
+    suspend fun mcpServers(profile: String? = null): List<McpServerDto> =
+        get<McpServersDto>("/api/mcp/servers${profileParam(profile, first = true)}").servers
+
+    suspend fun toggleMcpServer(name: String, enabled: Boolean, profile: String? = null) =
+        toggleProfileScoped("/api/mcp/servers/${java.net.URLEncoder.encode(name, "UTF-8")}/enabled", enabled, profile)
+
+    /** PUT {enabled, profile} to [path]; the gateway applies it to that profile's config. */
+    private suspend fun toggleProfileScoped(path: String, enabled: Boolean, profile: String?) =
+        withContext(Dispatchers.IO) {
+            val payload = buildJsonObject {
+                put("enabled", enabled)
+                if (!profile.isNullOrBlank()) put("profile", profile)
+            }.toString().toRequestBody("application/json".toMediaType())
+            okHttp.newCall(builder(path).put(payload).build()).execute().use { resp ->
+                if (!resp.isSuccessful) throw HermesApiException(resp.code, resp.body?.string().orEmpty().ifBlank { "toggle failed" })
+            }
+        }
 
     suspend fun messagingPlatforms(): List<MessagingPlatformDto> =
         get<MessagingPlatformsDto>("/api/messaging/platforms").platforms

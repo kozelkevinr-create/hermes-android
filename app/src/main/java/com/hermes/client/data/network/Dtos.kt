@@ -191,6 +191,16 @@ data class ModelOptionDto(
     val advanced: Boolean = false,
 )
 
+@Serializable data class McpServerDto(
+    val name: String,
+    val transport: String? = null,
+    val enabled: Boolean = true,
+    /** "config" for servers in the profile's config; "plugin" ones cannot be toggled. */
+    val source: String? = null,
+    val plugin: String? = null,
+)
+@Serializable data class McpServersDto(val servers: List<McpServerDto> = emptyList())
+
 @Serializable data class ToolsetDto(
     val name: String,
     val label: String? = null,

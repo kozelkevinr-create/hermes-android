@@ -10,6 +10,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -30,6 +32,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
@@ -40,7 +43,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.hermes.client.data.network.HermesRestApi
+import com.hermes.client.data.network.McpServerDto
 import com.hermes.client.data.network.ModelProviderDto
+import com.hermes.client.data.network.ToolsetDto
 import com.hermes.client.data.network.SkillDto
 import com.hermes.client.data.repository.ProfileManager
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -62,6 +67,8 @@ data class ProfileEditState(
     val skills: List<SkillDto> = emptyList(),
     val skillQuery: String = "",
     val providers: List<ModelProviderDto> = emptyList(),
+    val tools: List<ToolsetDto> = emptyList(),
+    val mcp: List<McpServerDto> = emptyList(),
 ) {
     val shownSkills: List<SkillDto>
         get() = if (skillQuery.isBlank()) skills
@@ -86,12 +93,14 @@ class ProfileEditViewModel @Inject constructor(
         _state.value = _state.value.copy(loading = true)
         val soul = runCatching { rest.profileSoul(name) }
         val skills = runCatching { rest.skills(name) }.getOrDefault(emptyList()).sortedBy { it.name }
+        val tools = runCatching { rest.toolsets(name) }.getOrDefault(emptyList()).sortedBy { it.label ?: it.name }
+        val mcp = runCatching { rest.mcpServers(name) }.getOrDefault(emptyList())
         val description = profileManager.list.value.firstOrNull { it.name == name }?.description.orEmpty()
         _state.value = ProfileEditState(
             loading = false,
             description = description, savedDescription = description,
             soul = soul.getOrDefault(""), savedSoul = soul.getOrDefault(""),
-            skills = skills,
+            skills = skills, tools = tools, mcp = mcp,
             message = soul.exceptionOrNull()?.let { "Could not load SOUL.md: ${it.message}" },
         )
     }
@@ -107,6 +116,28 @@ class ProfileEditViewModel @Inject constructor(
         runCatching { rest.toggleSkill(skill.name, enabled, name) }.onFailure {
             set(!enabled)
             _state.value = _state.value.copy(message = "Could not change ${skill.name}: ${it.message}")
+        }
+    }
+
+    fun toggleTool(tool: ToolsetDto, enabled: Boolean) = viewModelScope.launch {
+        fun set(on: Boolean) {
+            _state.value = _state.value.copy(tools = _state.value.tools.map { if (it.name == tool.name) it.copy(enabled = on) else it })
+        }
+        set(enabled)
+        runCatching { rest.toggleToolset(tool.name, enabled, name) }.onFailure {
+            set(!enabled)
+            _state.value = _state.value.copy(message = "Could not change ${tool.label ?: tool.name}: ${it.message}")
+        }
+    }
+
+    fun toggleMcp(server: McpServerDto, enabled: Boolean) = viewModelScope.launch {
+        fun set(on: Boolean) {
+            _state.value = _state.value.copy(mcp = _state.value.mcp.map { if (it.name == server.name) it.copy(enabled = on) else it })
+        }
+        set(enabled)
+        runCatching { rest.toggleMcpServer(server.name, enabled, name) }.onFailure {
+            set(!enabled)
+            _state.value = _state.value.copy(message = "Could not change ${server.name}: ${it.message}")
         }
     }
 
@@ -164,6 +195,10 @@ fun ProfileEditScreen(onBack: () -> Unit, vm: ProfileEditViewModel = hiltViewMod
     val snackbar = remember { SnackbarHostState() }
     var confirmDelete by remember { mutableStateOf(false) }
     var pickingModel by remember { mutableStateOf(false) }
+    // The lists are long, so they start collapsed; open state survives rotation.
+    var skillsOpen by rememberSaveable { mutableStateOf(false) }
+    var toolsOpen by rememberSaveable { mutableStateOf(false) }
+    var mcpOpen by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(state.message) { state.message?.let { snackbar.showSnackbar(it); vm.clearMessage() } }
     LaunchedEffect(state.deleted) { if (state.deleted) onBack() }
 
@@ -230,25 +265,71 @@ fun ProfileEditScreen(onBack: () -> Unit, vm: ProfileEditViewModel = hiltViewMod
                 }
                 item {
                     HorizontalDivider()
-                    Text("Skills", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
-                    Text(
-                        "${state.skills.count { it.enabled }} of ${state.skills.size} enabled for this profile",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    OutlinedTextField(
-                        value = state.skillQuery,
-                        onValueChange = vm::onSkillQuery,
-                        placeholder = { Text("Search skills…") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
+                    SectionHeader(
+                        title = "Skills",
+                        summary = "${state.skills.count { it.enabled }} of ${state.skills.size} enabled",
+                        expanded = skillsOpen,
+                        onToggle = { skillsOpen = !skillsOpen },
                     )
                 }
-                items(state.shownSkills, key = { it.name }) { sk ->
-                    ListItem(
-                        headlineContent = { Text(sk.name) },
-                        supportingContent = sk.description?.takeIf { it.isNotBlank() }?.let { { Text(it, maxLines = 2) } },
-                        trailingContent = { Switch(checked = sk.enabled, onCheckedChange = { vm.toggleSkill(sk, it) }) },
+                if (skillsOpen) {
+                    item {
+                        OutlinedTextField(
+                            value = state.skillQuery,
+                            onValueChange = vm::onSkillQuery,
+                            placeholder = { Text("Search skills…") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    items(state.shownSkills, key = { "skill:${it.name}" }) { sk ->
+                        ListItem(
+                            headlineContent = { Text(sk.name) },
+                            supportingContent = sk.description?.takeIf { it.isNotBlank() }?.let { { Text(it, maxLines = 2) } },
+                            trailingContent = { Switch(checked = sk.enabled, onCheckedChange = { vm.toggleSkill(sk, it) }) },
+                        )
+                    }
+                }
+                item {
+                    HorizontalDivider()
+                    SectionHeader(
+                        title = "Tools",
+                        summary = "${state.tools.count { it.enabled }} of ${state.tools.size} enabled",
+                        expanded = toolsOpen,
+                        onToggle = { toolsOpen = !toolsOpen },
                     )
+                }
+                if (toolsOpen) {
+                    items(state.tools, key = { "tool:${it.name}" }) { t ->
+                        ListItem(
+                            headlineContent = { Text(t.label ?: t.name) },
+                            supportingContent = t.description?.takeIf { it.isNotBlank() }?.let { { Text(it, maxLines = 2) } },
+                            trailingContent = { Switch(checked = t.enabled, onCheckedChange = { vm.toggleTool(t, it) }) },
+                        )
+                    }
+                }
+                item {
+                    HorizontalDivider()
+                    SectionHeader(
+                        title = "MCP servers",
+                        summary = if (state.mcp.isEmpty()) "none configured" else "${state.mcp.count { it.enabled }} of ${state.mcp.size} enabled",
+                        expanded = mcpOpen,
+                        onToggle = { mcpOpen = !mcpOpen },
+                    )
+                }
+                if (mcpOpen) {
+                    items(state.mcp, key = { "mcp:${it.name}" }) { m ->
+                        val fromPlugin = m.source == "plugin"
+                        ListItem(
+                            headlineContent = { Text(m.name) },
+                            supportingContent = {
+                                Text(if (fromPlugin) "Provided by plugin ${m.plugin ?: ""}".trim() else (m.transport ?: ""))
+                            },
+                            trailingContent = {
+                                Switch(checked = m.enabled, enabled = !fromPlugin, onCheckedChange = { vm.toggleMcp(m, it) })
+                            },
+                        )
+                    }
                 }
                 if (vm.name != "default") {
                     item {
@@ -278,6 +359,23 @@ fun ProfileEditScreen(onBack: () -> Unit, vm: ProfileEditViewModel = hiltViewMod
             text = { Text("This removes the profile's directory, including its sessions, config and keys. It cannot be undone.") },
             confirmButton = { TextButton(onClick = { confirmDelete = false; vm.delete() }) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+        )
+    }
+}
+
+@Composable
+private fun SectionHeader(title: String, summary: String, expanded: Boolean, onToggle: () -> Unit) {
+    androidx.compose.foundation.layout.Row(
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(vertical = 8.dp),
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Icon(
+            if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+            contentDescription = if (expanded) "Collapse $title" else "Expand $title",
         )
     }
 }
