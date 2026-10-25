@@ -55,10 +55,26 @@ class GatewayConnectionService : Service() {
     // leak the retired Service instance (and its injected WS client) forever.
     private var lifecycleObserver: androidx.lifecycle.LifecycleEventObserver? = null
 
+    // Set when the OS refused to promote us to the foreground; onStartCommand then opts out of
+    // sticky restarts so the rejected start is not retried in a loop.
+    private var startRejected = false
+
     override fun onCreate() {
         super.onCreate()
         notifier.ensureChannels()
-        startForeground(HermesNotifier.SERVICE_NOTIFICATION_ID, notifier.serviceNotification())
+        // START_STICKY lets the OS recreate this service while the app is in the background, and
+        // Android 12+ then refuses startForeground() (ForegroundServiceStartNotAllowedException,
+        // an IllegalStateException). Stop quietly instead of crashing the process; the service
+        // starts again the next time the app is opened or the tile is toggled.
+        val foreground = runCatching {
+            startForeground(HermesNotifier.SERVICE_NOTIFICATION_ID, notifier.serviceNotification())
+        }.exceptionOrNull()
+        if (foreground is IllegalStateException || foreground is SecurityException) {
+            startRejected = true
+            stopSelf()
+            return
+        }
+        if (foreground != null) throw foreground
         client.connect()
         // Service.onCreate() runs on the main thread — where ProcessLifecycleOwner must be observed —
         // so register synchronously (addObserver replays the current state immediately, no race).
@@ -111,7 +127,8 @@ class GatewayConnectionService : Service() {
         }
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int =
+        if (startRejected) START_NOT_STICKY else START_STICKY
     override fun onBind(intent: Intent?): IBinder? = null
 
     /** Folds the event into run state and posts/cancels the progress notification on change. */
@@ -163,7 +180,9 @@ class GatewayConnectionService : Service() {
     companion object {
         fun start(context: Context) {
             val i = Intent(context, GatewayConnectionService::class.java)
-            androidx.core.content.ContextCompat.startForegroundService(context, i)
+            // From the background (tile, boot-time callers) Android 12+ can refuse the start.
+            runCatching { androidx.core.content.ContextCompat.startForegroundService(context, i) }
+                .onFailure { if (it !is IllegalStateException && it !is SecurityException) throw it }
         }
         fun stop(context: Context) {
             context.stopService(Intent(context, GatewayConnectionService::class.java))
