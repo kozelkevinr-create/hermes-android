@@ -28,6 +28,14 @@ data class PendingApproval(
 /** The id a ntfy approval carries in [PendingApproval.rpcId], so one id space covers both sources. */
 fun ntfyApprovalKey(messageId: String) = "ntfy:$messageId"
 
+/** The notification id an approval was posted under, from either source. */
+fun notificationIdFor(item: PendingApproval): Int =
+    item.ntfy?.let { com.hermes.client.notifications.ntfyNotificationId(it.messageId) }
+        ?: com.hermes.client.notifications.notificationId(
+            com.hermes.client.notifications.Notif.EVENT_APPROVAL,
+            com.hermes.client.notifications.approvalKey(item.sessionId, item.rpcId),
+        )
+
 /** Adds [a] (deduped by message id and request id) as a pending approval for the inbox. */
 fun List<PendingApproval>.withNtfyApproval(a: NtfyApproval, nowMillis: Long): List<PendingApproval> {
     val key = ntfyApprovalKey(a.messageId)
@@ -73,6 +81,7 @@ fun List<PendingApproval>.applyApprovalEvent(event: ServerEvent, nowMillis: Long
 class ApprovalInbox @javax.inject.Inject constructor(
     private val chat: ChatRepository,
     okHttp: okhttp3.OkHttpClient,
+    private val notifier: com.hermes.client.notifications.HermesNotifier,
 ) {
     // Reply links go to the relay on the LAN; no gateway cookies or re-login belong on that call.
     private val http = okHttp.newBuilder()
@@ -111,6 +120,8 @@ class ApprovalInbox @javax.inject.Inject constructor(
             if (ntfy != null) replyViaRelay(ntfy, choice)
             else chat.respondApproval(item.sessionId, choice, item.request.requestId)
         }
+            // Answered here, so drop its notification now rather than waiting for the gateway to withdraw it.
+            .onSuccess { notifier.cancel(notificationIdFor(item)) }
             .onSuccess { _pending.value = _pending.value.filterNot { it.rpcId == item.rpcId && it.request.requestId == item.request.requestId } }
             .onFailure { DebugLog.log("approvals", "respond failed: ${it.message}") }
 

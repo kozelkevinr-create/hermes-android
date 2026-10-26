@@ -59,7 +59,15 @@ class NotificationActionReceiver : BroadcastReceiver() {
                     withTimeout(8_000) {
                         when (ra) {
                             is ReceiverAction.Approval ->
-                                chat.respondApproval(sid, ra.choice, intent.getStringExtra("request_id")?.ifBlank { null })
+                                if (sid == Notif.NTFY_SESSION) {
+                                    // A ntfy approval: the id names the ntfy message and it is answered through the relay.
+                                    val key = com.hermes.client.data.repository.ntfyApprovalKey(intent.getStringExtra("request_id").orEmpty())
+                                    val item = inbox.pending.value.firstOrNull { it.rpcId == key }
+                                        ?: error("approval no longer pending")
+                                    inbox.respond(item, ra.choice).getOrThrow()
+                                } else {
+                                    chat.respondApproval(sid, ra.choice, intent.getStringExtra("request_id")?.ifBlank { null })
+                                }
                             ReceiverAction.Reply -> {
                                 val requestId = intent.getStringExtra("request_id").orEmpty()
                                 chat.respondClarify(sid, requestId, replyText!!)

@@ -74,3 +74,24 @@ class NtfyApprovalInboxTest {
         org.junit.Assert.assertTrue(once.request.smartDenied)
     }
 }
+
+class ApprovalNotificationIdTest {
+    @org.junit.Test fun ntfy_approval_uses_the_ntfy_notification_id() {
+        val a = com.hermes.client.data.ntfy.NtfyApproval("m9", "r".repeat(32), "n".repeat(20), "http://r", setOf(com.hermes.client.ui.chat.ApprovalChoice.DENY), "T", "d", "c")
+        val item = emptyList<PendingApproval>().withNtfyApproval(a, 1).single()
+        org.junit.Assert.assertEquals(com.hermes.client.notifications.ntfyNotificationId("m9"), notificationIdFor(item))
+    }
+
+    @org.junit.Test fun gateway_approval_uses_the_per_approval_notification_id() {
+        val ev = com.hermes.client.data.network.ServerEvent(
+            "approval.request", "s1",
+            kotlinx.serialization.json.buildJsonObject {
+                put("rpc_id", kotlinx.serialization.json.JsonPrimitive("srq-1"))
+                put("request_id", kotlinx.serialization.json.JsonPrimitive("r1"))
+            },
+        )
+        val item = emptyList<PendingApproval>().applyApprovalEvent(ev, 1).single()
+        val spec = com.hermes.client.notifications.toNotificationSpec(ev, com.hermes.client.notifications.NotificationPrefs(enabled = true), false)!!
+        org.junit.Assert.assertEquals(spec.id, notificationIdFor(item))
+    }
+}
