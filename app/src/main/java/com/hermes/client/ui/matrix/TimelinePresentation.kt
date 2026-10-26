@@ -3,6 +3,7 @@ package com.hermes.client.ui.matrix
 import com.hermes.client.data.matrix.ENCRYPTED_PREVIEW
 import com.hermes.client.data.matrix.EventOrTxnId
 import com.hermes.client.data.matrix.MessageKind
+import com.hermes.client.data.matrix.ReactionSummary
 import com.hermes.client.data.matrix.MessageSendState
 import com.hermes.client.data.matrix.TimelineEntry
 import com.hermes.client.data.matrix.senderLabel
@@ -39,6 +40,7 @@ sealed interface TimelineRow {
         val isEditable: Boolean = false,
         /** SDK identity used to retry, abort or edit this event, when known. */
         val itemId: EventOrTxnId? = null,
+        val reactions: List<ReactionSummary> = emptyList(),
     ) : TimelineRow
 }
 
@@ -90,6 +92,7 @@ fun timelineRows(
                     sendState = e.sendState,
                     isEditable = e.isEditable,
                     itemId = e.itemId,
+                    reactions = e.reactions,
                     grouped = isSameGroup(e.sender, e.ts, lastSender, lastTs),
                     zone = zone,
                     locale = locale,
@@ -134,6 +137,7 @@ private fun messageRow(
     sendState: MessageSendState,
     isEditable: Boolean = false,
     itemId: EventOrTxnId? = null,
+    reactions: List<ReactionSummary> = emptyList(),
     grouped: Boolean,
     zone: ZoneId,
     locale: Locale,
@@ -150,6 +154,7 @@ private fun messageRow(
     sendState = sendState,
     isEditable = isEditable,
     itemId = itemId,
+    reactions = reactions,
 )
 
 private fun isSameGroup(sender: String, ts: Long, lastSender: String?, lastTs: Long?): Boolean =

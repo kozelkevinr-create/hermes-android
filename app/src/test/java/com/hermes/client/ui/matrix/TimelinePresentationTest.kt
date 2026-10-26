@@ -103,6 +103,17 @@ class TimelinePresentationTest {
     }
 
     @Test
+    fun reactions_reach_the_row() {
+        val reactions = listOf(
+            com.hermes.client.data.matrix.ReactionSummary("👍", 2, mine = true),
+            com.hermes.client.data.matrix.ReactionSummary("🎉", 1, mine = false),
+        )
+        val rows = messages(listOf(msg("1", "alice", nowMs).copy(reactions = reactions), msg("2", "bob", nowMs + 1_000)))
+        assertEquals(reactions, rows[0].reactions)
+        assertEquals(emptyList<com.hermes.client.data.matrix.ReactionSummary>(), rows[1].reactions)
+    }
+
+    @Test
     fun editability_is_relayed_to_the_row() {
         val rows = messages(
             listOf(
