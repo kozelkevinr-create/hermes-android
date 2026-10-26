@@ -18,6 +18,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -94,6 +95,8 @@ fun NotificationsScreen(onBack: () -> Unit, vm: NotificationsViewModel = hiltVie
                 prefs.enabled,
             ) { on -> if (on) enable() else { vm.setEnabled(false); GatewayConnectionService.stop(context) } }
             HorizontalDivider()
+            BatteryRow(context)
+            HorizontalDivider()
             ToggleRow("Approval requests", "When the agent needs you to approve an action", prefs.approvals, enabled = prefs.enabled) { vm.setApprovals(it) }
             HorizontalDivider()
             ToggleRow(
@@ -131,5 +134,46 @@ private fun ToggleRow(title: String, subtitle: String, checked: Boolean, enabled
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Switch(checked = checked, onCheckedChange = onChange, enabled = enabled)
+    }
+}
+
+
+/**
+ * Samsung and stock Android both freeze background connections of apps that are battery-
+ * optimized, which silently stops notifications. Shows the current state and opens the system
+ * exemption prompt.
+ */
+@Composable
+private fun BatteryRow(context: android.content.Context) {
+    val pm = context.getSystemService(android.os.PowerManager::class.java)
+    var exempt by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(pm.isIgnoringBatteryOptimizations(context.packageName))
+    }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        exempt = pm.isIgnoringBatteryOptimizations(context.packageName)
+    }
+    androidx.compose.foundation.layout.Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("Unrestricted background use", style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
+            Text(
+                if (exempt) "Allowed — Android won't pause the connection to save battery."
+                else "Not allowed — Android may pause the connection, so notifications can stop arriving.",
+                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (!exempt) {
+            androidx.compose.material3.TextButton(onClick = {
+                launcher.launch(
+                    android.content.Intent(
+                        android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                        android.net.Uri.parse("package:${context.packageName}"),
+                    ),
+                )
+            }) { Text("Allow") }
+        }
     }
 }

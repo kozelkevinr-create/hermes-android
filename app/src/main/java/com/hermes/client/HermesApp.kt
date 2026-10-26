@@ -18,6 +18,8 @@ import javax.inject.Inject
 class HermesApp : Application() {
     @Inject lateinit var settingsStore: SettingsStore
     @Inject lateinit var matrixClientManager: MatrixClientManager
+    // Injected so it starts collecting gateway events at launch, not on first visit to the screen.
+    @Inject lateinit var approvalInbox: com.hermes.client.data.repository.ApprovalInbox
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 

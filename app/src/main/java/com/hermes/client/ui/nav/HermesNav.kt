@@ -331,6 +331,7 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
                     onDone = { nav.popBackStack() },
                 )
             }
+            composable(NavRoutes.APPROVALS) { com.hermes.client.ui.approvals.ApprovalsScreen(onBack = back) }
             composable(NavRoutes.USAGE) { UsageScreen(onMenu = back) }
             composable(NavRoutes.SETTINGS) {
                 SettingsScreen(

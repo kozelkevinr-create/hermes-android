@@ -35,6 +35,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
+import androidx.compose.material.icons.rounded.EmojiEmotions
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.MoreVert
@@ -457,12 +461,13 @@ private fun Bubble(
     val shape = if (isOwn) UserBubbleShape else OtherBubbleShape
     val avatarSpacer = Modifier.width(AvatarSize + 6.dp)
     val itemId = row.itemId
-    // Own text messages open for editing on a long press; everything else stays inert.
-    val editModifier = if (row.isEditable && itemId != null) {
-        Modifier.combinedClickable(
-            onClick = {},
-            onLongClick = { onBeginEdit(itemId, row.body) },
-        )
+    // Long press opens Copy (any message with text) and Edit (own text messages).
+    var menuOpen by remember { mutableStateOf(false) }
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    val canCopy = !row.isUtd && row.kind in setOf(MessageKind.TEXT, MessageKind.NOTICE, MessageKind.EMOTE) && row.body.isNotBlank()
+    val canEdit = row.isEditable && itemId != null
+    val pressModifier = if (canCopy || canEdit) {
+        Modifier.combinedClickable(onClick = {}, onLongClick = { menuOpen = true })
     } else {
         Modifier
     }
@@ -491,8 +496,28 @@ private fun Bubble(
                     modifier = Modifier.padding(start = 4.dp, bottom = 2.dp),
                 )
             }
-            Surface(color = bubbleBg, shape = shape, modifier = editModifier) {
+            Surface(color = bubbleBg, shape = shape, modifier = pressModifier) {
                 Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        if (canCopy) {
+                            DropdownMenuItem(
+                                text = { Text("Copy text") },
+                                onClick = {
+                                    menuOpen = false
+                                    clipboard.setText(androidx.compose.ui.text.AnnotatedString(row.body))
+                                },
+                            )
+                        }
+                        if (canEdit) {
+                            DropdownMenuItem(
+                                text = { Text("Edit") },
+                                onClick = {
+                                    menuOpen = false
+                                    onBeginEdit(itemId!!, row.body)
+                                },
+                            )
+                        }
+                    }
                     content()
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
@@ -597,6 +622,7 @@ private fun MessageComposer(
     onPickImage: () -> Unit,
 ) {
     val canSend = draft.isNotBlank() && !sending
+    var emojiOpen by remember { mutableStateOf(false) }
 
     fun submit() {
         if (!canSend) return
@@ -632,6 +658,7 @@ private fun MessageComposer(
                 editFailed -> ComposerBanner("Couldn't save")
                 sendFailed -> ComposerBanner("Couldn't send")
             }
+            if (emojiOpen) EmojiPanel(onPick = { onDraftChange(draft + it) })
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.Bottom,
@@ -648,6 +675,14 @@ private fun MessageComposer(
                             else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                }
+                IconButton(onClick = { emojiOpen = !emojiOpen }) {
+                    Icon(
+                        Icons.Rounded.EmojiEmotions,
+                        contentDescription = if (emojiOpen) "Hide emoji" else "Add emoji",
+                        tint = if (emojiOpen) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
                 OutlinedTextField(
                     value = draft,
@@ -677,6 +712,33 @@ private fun MessageComposer(
                     }
                 }
             }
+        }
+    }
+}
+
+private val EMOJIS = listOf(
+    "😀", "😂", "🤣", "😊", "😍", "😘", "😎", "🤔", "😅", "😭", "😢", "😡",
+    "👍", "👎", "👏", "🙏", "💪", "🙌", "👀", "🤝", "✌️", "👌", "🤷", "🫡",
+    "❤️", "🔥", "✨", "🎉", "💯", "✅", "❌", "⚠️", "⭐", "💡", "🚀", "🎯",
+    "😴", "🤯", "😬", "🙄", "😇", "🥳", "😏", "🤦", "😱", "🤖", "🧠", "☕",
+)
+
+/** Compact emoji grid that appends to the draft, so emoji work regardless of the keyboard in use. */
+@Composable
+private fun EmojiPanel(onPick: (String) -> Unit) {
+    androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+        columns = androidx.compose.foundation.lazy.grid.GridCells.Adaptive(44.dp),
+        modifier = Modifier.fillMaxWidth().heightIn(max = 168.dp).padding(horizontal = 8.dp),
+    ) {
+        items(EMOJIS.size) { i ->
+            Text(
+                EMOJIS[i],
+                style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier
+                    .clickable { onPick(EMOJIS[i]) }
+                    .padding(8.dp)
+                    .semantics { contentDescription = "Emoji ${EMOJIS[i]}" },
+            )
         }
     }
 }

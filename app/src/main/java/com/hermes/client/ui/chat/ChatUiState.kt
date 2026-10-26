@@ -15,7 +15,19 @@ data class ApprovalRequest(
     val patternKeys: List<String>,
     val allowPermanent: Boolean,
     val smartDenied: Boolean = false,
+    val requestId: String = "",
 )
+/** Builds the approval card model from an `approval.request` event payload. */
+fun approvalRequestFrom(event: ServerEvent) = ApprovalRequest(
+    command = event.str("command") ?: "",
+    description = event.str("description") ?: "",
+    patternKeys = event.strList("pattern_keys")
+        .ifEmpty { event.str("pattern_key")?.let { listOf(it) } ?: emptyList() },
+    allowPermanent = event.bool("allow_permanent") ?: false,
+    smartDenied = event.bool("smart_denied") ?: false,
+    requestId = event.str("request_id") ?: "",
+)
+
 data class ClarifyRequest(val question: String, val options: List<String>, val requestId: String = "")
 
 data class ChatUiState(
@@ -92,21 +104,18 @@ fun ChatUiState.reduce(event: ServerEvent): ChatUiState {
                 if (it.id == tid) it.copy(status = ToolStatus.DONE, output = event.str("result") ?: "") else it
             })
         }
-        "approval.request" -> state.copy(
-            pendingApproval = ApprovalRequest(
-                command = event.str("command") ?: "",
-                description = event.str("description") ?: "",
-                patternKeys = event.strList("pattern_keys")
-                    .ifEmpty { event.str("pattern_key")?.let { listOf(it) } ?: emptyList() },
-                allowPermanent = event.bool("allow_permanent") ?: false,
-                smartDenied = event.bool("smart_denied") ?: false,
-            ),
-        )
+        "approval.request" -> state.copy(pendingApproval = approvalRequestFrom(event))
         "clarify.request" -> state.copy(
             pendingClarify = ClarifyRequest(
                 event.str("question") ?: "", emptyList(), event.str("request_id") ?: "",
             ),
         )
+        // The gateway withdrew an open approval/clarify (answered elsewhere, timed out, interrupted).
+        "request.cancel" -> when (event.str("method")) {
+            "approval" -> state.copy(pendingApproval = null)
+            "clarify" -> state.copy(pendingClarify = null)
+            else -> state
+        }
         "error" -> state.copy(
             messages = state.messages + ChatMessage(
                 id = "e-${state.messages.size}", role = Role.SYSTEM,
