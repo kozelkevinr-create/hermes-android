@@ -230,6 +230,13 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideNtfyStore(
+        @ApplicationContext context: Context,
+        json: Json,
+    ): com.hermes.client.data.ntfy.NtfyStore = com.hermes.client.data.ntfy.NtfyStore(context, json)
+
+    @Provides
+    @Singleton
     fun provideHermesNotifier(
         @ApplicationContext context: Context,
     ): com.hermes.client.notifications.HermesNotifier =

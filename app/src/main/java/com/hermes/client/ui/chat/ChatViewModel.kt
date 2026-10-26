@@ -259,7 +259,7 @@ class ChatViewModel @Inject constructor(
 
     fun respondApproval(choice: ApprovalChoice) {
         val requestId = _state.value.pendingApproval?.requestId
-        _state.value = _state.value.copy(pendingApproval = null)
+        _state.value = _state.value.withoutApproval()
         viewModelScope.launch {
             runCatching { chat.respondApproval(sessionId, choice, requestId) }
                 .onFailure {

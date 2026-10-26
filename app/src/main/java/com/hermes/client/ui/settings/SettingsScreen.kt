@@ -39,6 +39,7 @@ fun SettingsScreen(
             Entry("Appearance", "Theme, light/dark, tool-call display") { onNavigate("settings_appearance") }
             HorizontalDivider()
             Entry("Notifications", "Approvals, cron, and messaging alerts") { onNavigate("settings_notifications") }
+            Entry("Notification sources", "ntfy topics: approvals and other alerts") { onNavigate("settings_ntfy") }
             HorizontalDivider()
             Entry("Saved prompts", "Reusable prompts for the composer") { onNavigate("settings_prompts") }
             HorizontalDivider()

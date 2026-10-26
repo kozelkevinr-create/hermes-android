@@ -495,6 +495,9 @@ private class RustTimelineHandle(
         runCatching { room.destroy() }
     }
 
+    /** Used to tell the current user's reactions from others'. */
+    private val ownUserId: String = runCatching { room.ownUserId() }.getOrDefault("")
+
     private val repaginator = TimelineRepaginator(scope) { count -> paginateBackwards(count) }
 
     private val listener = object : TimelineListener {
@@ -525,7 +528,7 @@ private class RustTimelineHandle(
                         if (d is TimelineDiff.Clear || (d is TimelineDiff.Reset && d.values.isEmpty())) {
                             reset = true
                         }
-                        diffs += d.toEntryDiff()
+                        diffs += d.toEntryDiff(ownUserId)
                     }
                     _items.value = applyDiffs(_items.value, diffs)
                     repaginator.onBatch(reset)
@@ -632,6 +635,18 @@ private class RustTimelineHandle(
         }
     }
 
+    override suspend fun toggleReaction(itemId: EventOrTxnId, key: String): Boolean = ffi.use(false) {
+        try {
+            timeline.toggleReaction(itemId.toSdk(), key)
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            DebugLog.log("matrix-timeline", "toggle reaction failed: ${e.javaClass.simpleName}")
+            false
+        }
+    }
+
     override suspend fun sendReadReceipt(eventId: String): Boolean = ffi.use(false) {
         try {
             timeline.sendReadReceipt(ReceiptType.READ, eventId)
@@ -728,9 +743,9 @@ private fun TimelineDiff.destroyCarriedItems() {
 }
 
 /** Maps an SDK diff onto the pure [ListDiff], destroying every carried item exactly once. */
-private suspend fun TimelineDiff.toEntryDiff(): ListDiff<TimelineEntry> {
+private suspend fun TimelineDiff.toEntryDiff(me: String): ListDiff<TimelineEntry> {
     suspend fun one(item: TimelineItem): TimelineEntry = try {
-        item.toEntry()
+        item.toEntry(me)
     } finally {
         item.destroy()
     }
@@ -740,7 +755,7 @@ private suspend fun TimelineDiff.toEntryDiff(): ListDiff<TimelineEntry> {
         try {
             for (item in items) {
                 try {
-                    out += item.toEntry()
+                    out += item.toEntry(me)
                 } finally {
                     item.destroy()
                     handled++
@@ -767,7 +782,7 @@ private suspend fun TimelineDiff.toEntryDiff(): ListDiff<TimelineEntry> {
     }
 }
 
-private fun TimelineItem.toEntry(): TimelineEntry {
+private fun TimelineItem.toEntry(me: String): TimelineEntry {
     val id = runCatching { uniqueId().id }.getOrNull()?.takeIf { it.isNotBlank() }
         ?: "fallback-${FALLBACK_ID_COUNTER.incrementAndGet()}"
     return try {
@@ -784,7 +799,7 @@ private fun TimelineItem.toEntry(): TimelineEntry {
                 TimelineEntry.Unsupported(id)
             } else {
                 try {
-                    event.toEventEntry(id, event.eventOrTransactionId.toItemId(), event.isEditable)
+                    event.toEventEntry(id, event.eventOrTransactionId.toItemId(), event.isEditable, me)
                 } finally {
                     event.destroy()
                 }
@@ -799,7 +814,7 @@ private fun TimelineItem.toEntry(): TimelineEntry {
     }
 }
 
-private fun EventTimelineItem.toEventEntry(id: String, itemId: EventOrTxnId, editable: Boolean): TimelineEntry {
+private fun EventTimelineItem.toEventEntry(id: String, itemId: EventOrTxnId, editable: Boolean, me: String): TimelineEntry {
     val disposables = ArrayList<Disposable>()
     try {
         val sender = sender
@@ -813,7 +828,11 @@ private fun EventTimelineItem.toEventEntry(id: String, itemId: EventOrTxnId, edi
             is TimelineItemContent.MsgLike -> {
                 val msgLike = content.content
                 disposables += msgLike
-                msgLike.toEntry(disposables, id, itemId, editable, sender, senderName, isOwn, ts, sendState)
+                val entry = msgLike.toEntry(disposables, id, itemId, editable, sender, senderName, isOwn, ts, sendState)
+                val summaries = reactions.map { r ->
+                    ReactionSummary(r.key, r.senders.size, r.senders.any { it.senderId == me })
+                }.filter { it.count > 0 }
+                if (entry is TimelineEntry.Message && summaries.isNotEmpty()) entry.copy(reactions = summaries) else entry
             }
             is TimelineItemContent.RoomMembership -> TimelineEntry.StateEvent(id, ts, content.membershipSummary())
             is TimelineItemContent.ProfileChange -> TimelineEntry.StateEvent(id, ts, content.profileSummary())

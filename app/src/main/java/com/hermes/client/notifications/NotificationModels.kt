@@ -53,6 +53,10 @@ object Notif {
     const val CHANNEL_SERVICE = "service"
     const val CHANNEL_ACTIVITY = "activity"
     const val CHANNEL_MATRIX = "matrix_messages"
+    // Messages from subscribed ntfy topics that aren't approvals.
+    const val CHANNEL_NTFY = "ntfy_alerts"
+    /** [NotifAction.sessionId] marking an action that answers a ntfy approval, whose requestId is the ntfy message id. */
+    const val NTFY_SESSION = "ntfy"
     // Live in-flight run progress. IMPORTANCE_LOW (not MIN like CHANNEL_SERVICE) so the ongoing
     // progress notification is actually glanceable in the shade and eligible for promotion to a
     // status-bar Live Update on API 36+, while still making no sound.

@@ -39,6 +39,7 @@ object NavRoutes {
     const val SETTINGS = "settings"
     const val SETTINGS_APPEARANCE = "settings_appearance"
     const val SETTINGS_NOTIFICATIONS = "settings_notifications"
+    const val SETTINGS_NTFY = "settings_ntfy"
     const val SETTINGS_MEMORY = "settings_memory"
     const val SETTINGS_PROMPTS = "settings_prompts"
     const val SETTINGS_MCP = "settings_mcp"
@@ -83,6 +84,7 @@ val NAV_ROUTES: List<String> = listOf(
     NavRoutes.SETTINGS,
     NavRoutes.SETTINGS_APPEARANCE,
     NavRoutes.SETTINGS_NOTIFICATIONS,
+    NavRoutes.SETTINGS_NTFY,
     NavRoutes.SETTINGS_MEMORY,
     NavRoutes.SETTINGS_PROMPTS,
     NavRoutes.SETTINGS_MCP,
