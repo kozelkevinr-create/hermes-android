@@ -36,6 +36,8 @@ fun ApprovalSheet(
     onRespond: (ApprovalChoice) -> Unit,
     onDismiss: () -> Unit,
     queuedBehind: Int = 0,
+    /** Whether swiping the sheet away is allowed. Chat approvals must be answered; the app-wide one can be put off. */
+    dismissible: Boolean = false,
 ) {
     val accent = LocalProfileAccent.current
     val tier = tierFor(req.allowPermanent)
@@ -46,7 +48,7 @@ fun ApprovalSheet(
     // An approval must be an explicit choice: veto the Hidden transition so a swipe / scrim-tap
     // can't dismiss the sheet while pendingApproval is still set (which would desync — sheet gone
     // but state still blocked). The sheet leaves composition only when a choice clears the pending.
-    val sheetState = rememberModalBottomSheetState(confirmValueChange = { it != SheetValue.Hidden })
+    val sheetState = rememberModalBottomSheetState(confirmValueChange = { dismissible || it != SheetValue.Hidden })
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {

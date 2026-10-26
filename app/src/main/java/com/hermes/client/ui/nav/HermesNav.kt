@@ -379,6 +379,24 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
         )
     }
 
+    // A ntfy approval has no chat to appear in, so surface it wherever the user is in the app. Gateway
+    // approvals keep their in-chat sheet, and the Approvals screen manages its own. Putting it off
+    // leaves the card in the inbox and the notification up; a newer approval shows again.
+    val approvalsVm: com.hermes.client.ui.approvals.ApprovalsViewModel = hiltViewModel()
+    val allPending by approvalsVm.pending.collectAsStateWithLifecycle()
+    var putOff by remember { mutableStateOf(emptySet<String>()) }
+    val ntfyPending = allPending.filter { it.ntfy != null && it.rpcId !in putOff }
+    val toShow = ntfyPending.firstOrNull()
+    if (toShow != null && route != NavRoutes.APPROVALS) {
+        com.hermes.client.ui.chat.ApprovalSheet(
+            req = toShow.request,
+            queuedBehind = ntfyPending.size - 1,
+            dismissible = true,
+            onRespond = { approvalsVm.respond(toShow, it) },
+            onDismiss = { putOff = putOff + toShow.rpcId },
+        )
+    }
+
     if (showPalette) {
         com.hermes.client.ui.components.CommandPalette(
             onNavigate = { route -> nav.navigate(route) { launchSingleTop = true } },
