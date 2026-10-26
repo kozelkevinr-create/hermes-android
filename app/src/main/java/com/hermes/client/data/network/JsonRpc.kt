@@ -97,7 +97,8 @@ const val SERVER_REQUEST_PREFIX = "srq-"
 fun serverRequestToEvent(req: RpcServerRequest): ServerEvent? {
     val sid = req.params["session_id"]?.jsonPrimitive?.content
     return when (req.method) {
-        "approval" -> ServerEvent("approval.request", sid, req.params)
+        // rpc_id lets request.cancel (which names the rpc id) find the matching card later.
+        "approval" -> ServerEvent("approval.request", sid, JsonObject(req.params + ("rpc_id" to JsonPrimitive(req.id))))
         "clarify" -> {
             val first = (req.params["questions"] as? JsonArray)?.firstOrNull() as? JsonObject
             ServerEvent(
