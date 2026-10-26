@@ -15,6 +15,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.put
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -142,12 +143,14 @@ open class HermesGatewayClient(
                         pending.remove(msg.id)
                             ?.completeExceptionally(GatewayRpcException(msg.error.code, msg.error.message))
                     }
+                    is RpcServerRequest -> handleServerRequest(msg)
                     is RpcEvent -> {
                         // Handle gateway.ready: flip to Connected and open the readiness gate.
                         if (msg.event.type == "gateway.ready") {
                             attempt.set(0)
                             _state.value = ConnectionState.Connected
                             readyGate.complete(Unit)
+                            advertiseServerRequests(gen)
                         }
                         // Log every event except the high-frequency streaming deltas, so the
                         // diagnostic trail stays readable while still capturing errors,
@@ -187,6 +190,50 @@ open class HermesGatewayClient(
             kotlinx.coroutines.delay(delayMs)
             if (!manuallyClosed && gen == generation.get()) openSocket()
         }
+    }
+
+    // Answer-map key per open clarify request (rpc id → first question id).
+    private val clarifyQids = ConcurrentHashMap<String, String>()
+
+    fun clarifyQid(requestId: String): String? = clarifyQids[requestId]
+
+    /**
+     * Tell the gateway this connection answers server→client requests. Without it the gateway
+     * treats us as a pre-request build and fails every approval/clarify fast instead of showing
+     * it, so the agent stalls and no notification is ever posted. Sent once per socket.
+     */
+    private fun advertiseServerRequests(gen: Int) {
+        scope.launch {
+            if (gen != generation.get()) return@launch
+            runCatching {
+                call("client.capabilities", kotlinx.serialization.json.buildJsonObject {
+                    put("server_requests", true)
+                })
+            }.onFailure { DebugLog.log("ws", "client.capabilities failed: ${it.message}") }
+        }
+    }
+
+    /**
+     * Surfaces an approval/clarify request as an event and declines any other method (sudo,
+     * secret prompts, desktop bridges) so the agent is not left waiting on a prompt we cannot show.
+     * Also used to replay `open_requests` returned by session.resume.
+     */
+    fun handleServerRequest(req: RpcServerRequest) {
+        val event = serverRequestToEvent(req)
+        if (event == null) {
+            DebugLog.log("ws", "server request ${req.method} declined (unsupported)")
+            ws?.send(encodeServerError(json, req.id, RPC_METHOD_NOT_FOUND, "${req.method} is not supported by this app"))
+            return
+        }
+        DebugLog.log("ws", "server request ${req.method} session=${event.sessionId ?: "-"}")
+        if (req.method == "clarify") event.str("qid")?.let { clarifyQids[req.id] = it }
+        _events.tryEmit(event)
+    }
+
+    /** Answer a server→client request by its rpc id. False when the socket is gone. */
+    fun respondToRequest(id: String, result: kotlinx.serialization.json.JsonObject): Boolean {
+        clarifyQids.remove(id)
+        return ws?.send(encodeServerResult(json, id, result)) ?: false
     }
 
     private fun failAllPending(reason: String) {

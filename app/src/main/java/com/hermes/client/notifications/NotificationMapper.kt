@@ -7,6 +7,32 @@ import com.hermes.client.ui.chat.ApprovalTier
 import com.hermes.client.ui.chat.tierFor
 
 /**
+ * Stable notification id for an event type on a session. Never collides with
+ * HermesNotifier.SERVICE_NOTIFICATION_ID (1001) or the run-progress notification id (1003) —
+ * those belong to the ongoing foreground-service notification and the live run-progress
+ * notification, and notify()-ing over either would clobber it.
+ */
+fun notificationId(type: String, sessionId: String): Int {
+    val id = (type + sessionId).hashCode()
+    return if (id == 1001 || id == 1003) 1002 else id
+}
+
+/**
+ * Notification to clear when the gateway withdraws an open request (`request.cancel`): the
+ * approval/clarify was answered on another surface, timed out or was interrupted, so its buttons
+ * would otherwise stay on screen and fail when tapped. Null for any other event.
+ */
+fun cancelledRequestNotificationId(event: ServerEvent): Int? {
+    if (event.type != "request.cancel") return null
+    val sid = event.sessionId ?: return null
+    return when (event.str("method")) {
+        "approval" -> notificationId(Notif.EVENT_APPROVAL, sid)
+        "clarify" -> notificationId(Notif.EVENT_CLARIFY, sid)
+        else -> null
+    }
+}
+
+/**
  * Pure mapping from a gateway event to a notification (or null). `approval.request` and
  * `clarify.request` always notify (they need the user's input regardless of whether the app is
  * foregrounded); `message.complete` (run finished) and `error` (run failed) only notify when the
@@ -17,11 +43,7 @@ import com.hermes.client.ui.chat.tierFor
 fun toNotificationSpec(event: ServerEvent, prefs: NotificationPrefs, appInForeground: Boolean): NotificationSpec? {
     if (!prefs.enabled) return null
     val sid = event.sessionId ?: return null
-    var id = (event.type + sid).hashCode()
-    // Never collide with HermesNotifier.SERVICE_NOTIFICATION_ID (1001) or the run-progress
-    // notification id (1003) — those ids belong to the ongoing foreground-service notification
-    // and the live run-progress notification, and notify()-ing over either would clobber it.
-    if (id == 1001 || id == 1003) id = 1002
+    val id = notificationId(event.type, sid)
     return when (event.type) {
         Notif.EVENT_APPROVAL -> if (!prefs.approvals) null else {
             val elevated = tierFor(event.bool("allow_permanent") ?: false) == ApprovalTier.ELEVATED

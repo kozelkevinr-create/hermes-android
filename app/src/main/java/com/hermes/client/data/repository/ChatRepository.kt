@@ -57,6 +57,16 @@ class ChatRepository(private val client: HermesGatewayClient) {
             put("session_id", sessionId)
             if (!profile.isNullOrBlank()) put("profile", profile)
         })
+        // Requests still waiting on this session (approval/clarify the app was not attached for)
+        // come back here; replay them so they surface as if they had just arrived.
+        (result.jsonObject["open_requests"] as? kotlinx.serialization.json.JsonArray)?.forEach { el ->
+            val o = el as? JsonObject ?: return@forEach
+            val id = o["id"]?.jsonPrimitive?.content ?: return@forEach
+            val method = o["method"]?.jsonPrimitive?.content ?: return@forEach
+            client.handleServerRequest(
+                com.hermes.client.data.network.RpcServerRequest(id, method, o["params"] as? JsonObject ?: JsonObject(emptyMap())),
+            )
+        }
         return result.jsonObject["session_id"]?.jsonPrimitive?.content
     }
 
@@ -133,6 +143,15 @@ class ChatRepository(private val client: HermesGatewayClient) {
     }
 
     suspend fun respondClarify(sessionId: String, requestId: String, answer: String) {
+        // Current gateways ask clarify as a server→client request: answer the frame by its rpc id.
+        if (requestId.startsWith(com.hermes.client.data.network.SERVER_REQUEST_PREFIX)) {
+            val qid = client.clarifyQid(requestId).orEmpty()
+            val sent = client.respondToRequest(requestId, buildJsonObject {
+                put("answers", buildJsonObject { put(qid, answer) })
+            })
+            if (!sent) throw IllegalStateException("not connected")
+            return
+        }
         client.call("clarify.respond", buildJsonObject {
             put("session_id", sessionId)
             put("request_id", requestId)
