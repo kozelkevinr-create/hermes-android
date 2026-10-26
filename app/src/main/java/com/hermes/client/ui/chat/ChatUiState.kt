@@ -15,6 +15,7 @@ data class ApprovalRequest(
     val patternKeys: List<String>,
     val allowPermanent: Boolean,
     val smartDenied: Boolean = false,
+    val requestId: String = "",
 )
 data class ClarifyRequest(val question: String, val options: List<String>, val requestId: String = "")
 
@@ -100,6 +101,7 @@ fun ChatUiState.reduce(event: ServerEvent): ChatUiState {
                     .ifEmpty { event.str("pattern_key")?.let { listOf(it) } ?: emptyList() },
                 allowPermanent = event.bool("allow_permanent") ?: false,
                 smartDenied = event.bool("smart_denied") ?: false,
+                requestId = event.str("request_id") ?: "",
             ),
         )
         "clarify.request" -> state.copy(
