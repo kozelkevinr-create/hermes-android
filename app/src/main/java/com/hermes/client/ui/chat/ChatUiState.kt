@@ -16,6 +16,8 @@ data class ApprovalRequest(
     val allowPermanent: Boolean,
     val smartDenied: Boolean = false,
     val requestId: String = "",
+    /** The gateway server-request id; `request.cancel` names this one. */
+    val rpcId: String = "",
 )
 /** Builds the approval card model from an `approval.request` event payload. */
 fun approvalRequestFrom(event: ServerEvent) = ApprovalRequest(
@@ -33,6 +35,8 @@ data class ClarifyRequest(val question: String, val options: List<String>, val r
 data class ChatUiState(
     val messages: List<ChatMessage> = emptyList(),
     val pendingApproval: ApprovalRequest? = null,
+    /** Further approvals waiting behind [pendingApproval], oldest first. */
+    val queuedApprovals: List<ApprovalRequest> = emptyList(),
     val pendingClarify: ClarifyRequest? = null,
     val isGenerating: Boolean = false,
     val pendingAttachments: List<PendingAttachment> = emptyList(),
@@ -104,7 +108,7 @@ fun ChatUiState.reduce(event: ServerEvent): ChatUiState {
                 if (it.id == tid) it.copy(status = ToolStatus.DONE, output = event.str("result") ?: "") else it
             })
         }
-        "approval.request" -> state.copy(pendingApproval = approvalRequestFrom(event))
+        "approval.request" -> state.withApproval(approvalRequestFrom(event))
         "clarify.request" -> state.copy(
             pendingClarify = ClarifyRequest(
                 event.str("question") ?: "", emptyList(), event.str("request_id") ?: "",
@@ -112,7 +116,7 @@ fun ChatUiState.reduce(event: ServerEvent): ChatUiState {
         )
         // The gateway withdrew an open approval/clarify (answered elsewhere, timed out, interrupted).
         "request.cancel" -> when (event.str("method")) {
-            "approval" -> state.copy(pendingApproval = null)
+            "approval" -> state.withoutApproval(event.str("id"))
             "clarify" -> state.copy(pendingClarify = null)
             else -> state
         }
@@ -150,3 +154,23 @@ fun ChatUiState.withAttachment(a: PendingAttachment): ChatUiState =
 
 fun ChatUiState.withoutAttachment(id: String): ChatUiState =
     copy(pendingAttachments = pendingAttachments.filterNot { it.id == id })
+
+/** Shows [req] now if nothing is pending, otherwise queues it behind the pending ones (replays are ignored). */
+fun ChatUiState.withApproval(req: ApprovalRequest): ChatUiState {
+    val known = listOfNotNull(pendingApproval) + queuedApprovals
+    if (known.any { (req.requestId.isNotEmpty() && it.requestId == req.requestId) ||
+            (req.rpcId.isNotEmpty() && it.rpcId == req.rpcId) }) return this
+    return if (pendingApproval == null) copy(pendingApproval = req) else copy(queuedApprovals = queuedApprovals + req)
+}
+
+/**
+ * Drops the approval with [rpcId] (the pending one when null) and promotes the next queued one.
+ * An id that matches nothing leaves the state alone.
+ */
+fun ChatUiState.withoutApproval(rpcId: String? = null): ChatUiState {
+    val pending = pendingApproval ?: return this
+    if (rpcId != null && pending.rpcId != rpcId) {
+        return copy(queuedApprovals = queuedApprovals.filterNot { it.rpcId == rpcId })
+    }
+    return copy(pendingApproval = queuedApprovals.firstOrNull(), queuedApprovals = queuedApprovals.drop(1))
+}

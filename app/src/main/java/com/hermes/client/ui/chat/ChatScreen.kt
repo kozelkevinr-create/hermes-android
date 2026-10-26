@@ -576,6 +576,7 @@ fun ChatScreen(
     state.pendingApproval?.let { req ->
         ApprovalSheet(
             req = req,
+            queuedBehind = state.queuedApprovals.size,
             onRespond = { vm.respondApproval(it) },
             onDismiss = { /* keep pending: do nothing until the user chooses */ },
         )

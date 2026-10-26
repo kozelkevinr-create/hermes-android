@@ -54,6 +54,11 @@ class ApprovalsViewModel @Inject constructor(private val inbox: ApprovalInbox) :
     fun respond(item: PendingApproval, choice: ApprovalChoice) {
         viewModelScope.launch { inbox.respond(item, choice) }
     }
+
+    /** Allows each of [items] once. Elevated ones are never swept in; they need a deliberate review. */
+    fun allowAllOnce(items: List<PendingApproval>) {
+        viewModelScope.launch { items.forEach { inbox.respond(it, ApprovalChoice.ONCE) } }
+    }
 }
 
 /** Every approval the agent is waiting on, oldest first; tap one to review it in full and decide. */
@@ -61,6 +66,8 @@ class ApprovalsViewModel @Inject constructor(private val inbox: ApprovalInbox) :
 fun ApprovalsScreen(onBack: () -> Unit, vm: ApprovalsViewModel = hiltViewModel()) {
     val pending by vm.pending.collectAsStateWithLifecycle()
     var openRpcId by remember { mutableStateOf<String?>(null) }
+    var confirmAll by remember { mutableStateOf(false) }
+    val sweepable = pending.filter { tierFor(it.request.allowPermanent) == ApprovalTier.STANDARD }
     val open = pending.firstOrNull { it.rpcId == openRpcId }
 
     Scaffold(
@@ -68,6 +75,9 @@ fun ApprovalsScreen(onBack: () -> Unit, vm: ApprovalsViewModel = hiltViewModel()
             HermesTopBar(
                 title = "Approvals",
                 subtitle = if (pending.isEmpty()) "Nothing waiting" else "${pending.size} waiting",
+                actions = {
+                    if (sweepable.size > 1) TextButton(onClick = { confirmAll = true }) { Text("Allow all") }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
@@ -97,6 +107,22 @@ fun ApprovalsScreen(onBack: () -> Unit, vm: ApprovalsViewModel = hiltViewModel()
                 }
             }
         }
+    }
+
+    if (confirmAll) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmAll = false },
+            title = { Text("Allow ${sweepable.size} approvals once?") },
+            text = {
+                Text(
+                    "Each command runs one time. " +
+                        if (pending.size > sweepable.size) "${pending.size - sweepable.size} elevated approval(s) stay here for you to review."
+                        else "Nothing else is changed.",
+                )
+            },
+            confirmButton = { TextButton(onClick = { confirmAll = false; vm.allowAllOnce(sweepable) }) { Text("Allow once") } },
+            dismissButton = { TextButton(onClick = { confirmAll = false }) { Text("Cancel") } },
+        )
     }
 
     open?.let { item ->

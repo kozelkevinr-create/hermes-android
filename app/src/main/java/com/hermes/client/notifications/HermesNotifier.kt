@@ -38,6 +38,9 @@ class HermesNotifier(private val context: Context) {
             },
         )
         sys.createNotificationChannel(
+            NotificationChannel(Notif.CHANNEL_NTFY, "Subscribed alerts", NotificationManager.IMPORTANCE_DEFAULT),
+        )
+        sys.createNotificationChannel(
             NotificationChannel(Notif.CHANNEL_RUN_PROGRESS, "Run progress", NotificationManager.IMPORTANCE_LOW),
         )
     }
@@ -154,10 +157,12 @@ class HermesNotifier(private val context: Context) {
         intent.action = a.action
         intent.putExtra("session_id", a.sessionId)
         intent.putExtra("notif_id", notifId)
-        // Flags inline — see the note in openIntent().
+        intent.putExtra("request_id", a.requestId.orEmpty())
+        // Flags inline — see the note in openIntent(). notifId keeps two approvals of one session
+        // from sharing a PendingIntent (FLAG_UPDATE_CURRENT would overwrite the first one's extras).
         return PendingIntent.getBroadcast(
             context,
-            (a.action + a.sessionId).hashCode(),
+            (a.action + a.sessionId + notifId).hashCode(),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )

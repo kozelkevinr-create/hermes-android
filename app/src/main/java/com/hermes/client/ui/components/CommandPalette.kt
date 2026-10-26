@@ -37,6 +37,7 @@ val PALETTE_COMMANDS: List<Command> = listOf(
     Command("Oneshot dispatch", "oneshot", "task background bridge voice"),
     Command("Brain", "brain", "settings config"),
     Command("Skills", "agents_tools", "abilities tools"),
+    Command("Notification sources", "settings_ntfy", "ntfy topics server alerts"),
     Command("Approvals", "approvals", "pending permission requests allow deny"),
     Command("MCP servers", "settings_mcp", "tools servers"),
     Command("Webhooks", "webhooks", "triggers inbound"),

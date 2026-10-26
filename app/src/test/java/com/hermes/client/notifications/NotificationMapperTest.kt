@@ -154,7 +154,7 @@ class NotificationMapperTest {
     }
 
     @Test fun request_cancel_clears_the_matching_approval_notification() {
-        val approval = ServerEvent("approval.request", "s1", buildJsonObject { })
+        val approval = ServerEvent("approval.request", "s1", buildJsonObject { put("rpc_id", "srq-1") })
         val spec = toNotificationSpec(approval, on, appInForeground = false)!!
         val cancel = ServerEvent("request.cancel", "s1", buildJsonObject {
             put("id", "srq-1"); put("method", "approval"); put("reason", "resolved")
@@ -166,5 +166,42 @@ class NotificationMapperTest {
         val sudo = ServerEvent("request.cancel", "s1", buildJsonObject { put("method", "sudo") })
         assertEquals(null, cancelledRequestNotificationId(sudo))
         assertEquals(null, cancelledRequestNotificationId(ServerEvent("message.complete", "s1", buildJsonObject { })))
+    }
+}
+
+class ApprovalNotificationIdsTest {
+    private val prefs = NotificationPrefs(enabled = true, approvals = true, runFinished = true)
+    private fun approval(rpc: String, req: String) = com.hermes.client.data.network.ServerEvent(
+        "approval.request", "s1",
+        kotlinx.serialization.json.buildJsonObject {
+            put("rpc_id", kotlinx.serialization.json.JsonPrimitive(rpc))
+            put("request_id", kotlinx.serialization.json.JsonPrimitive(req))
+            put("command", kotlinx.serialization.json.JsonPrimitive("rm x"))
+        },
+    )
+
+    @org.junit.Test fun two_approvals_in_one_session_get_separate_notifications() {
+        val a = toNotificationSpec(approval("srq-1", "r1"), prefs, false)!!
+        val b = toNotificationSpec(approval("srq-2", "r2"), prefs, false)!!
+        org.junit.Assert.assertNotEquals(a.id, b.id)
+    }
+
+    @org.junit.Test fun actions_name_their_own_approval() {
+        val a = toNotificationSpec(approval("srq-1", "r1"), prefs, false)!!
+        org.junit.Assert.assertTrue(a.actions.all { it.requestId == "r1" })
+    }
+
+    @org.junit.Test fun cancel_clears_only_the_matching_notification() {
+        val a = toNotificationSpec(approval("srq-1", "r1"), prefs, false)!!
+        val b = toNotificationSpec(approval("srq-2", "r2"), prefs, false)!!
+        val cancel = com.hermes.client.data.network.ServerEvent(
+            "request.cancel", "s1",
+            kotlinx.serialization.json.buildJsonObject {
+                put("id", kotlinx.serialization.json.JsonPrimitive("srq-1"))
+                put("method", kotlinx.serialization.json.JsonPrimitive("approval"))
+            },
+        )
+        org.junit.Assert.assertEquals(a.id, cancelledRequestNotificationId(cancel))
+        org.junit.Assert.assertNotEquals(b.id, cancelledRequestNotificationId(cancel))
     }
 }

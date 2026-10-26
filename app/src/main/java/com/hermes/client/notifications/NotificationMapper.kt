@@ -22,11 +22,16 @@ fun notificationId(type: String, sessionId: String): Int {
  * approval/clarify was answered on another surface, timed out or was interrupted, so its buttons
  * would otherwise stay on screen and fail when tapped. Null for any other event.
  */
+/** Key that keeps two approvals of one session from sharing a notification (empty id = legacy event). */
+fun approvalKey(sessionId: String, rpcId: String?): String =
+    if (rpcId.isNullOrBlank()) sessionId else "$sessionId/$rpcId"
+
 fun cancelledRequestNotificationId(event: ServerEvent): Int? {
     if (event.type != "request.cancel") return null
     val sid = event.sessionId ?: return null
     return when (event.str("method")) {
-        "approval" -> notificationId(Notif.EVENT_APPROVAL, sid)
+        // The cancel names the gateway's rpc id, which approval notifications are keyed on.
+        "approval" -> notificationId(Notif.EVENT_APPROVAL, approvalKey(sid, event.str("id")))
         "clarify" -> notificationId(Notif.EVENT_CLARIFY, sid)
         else -> null
     }
@@ -43,10 +48,15 @@ fun cancelledRequestNotificationId(event: ServerEvent): Int? {
 fun toNotificationSpec(event: ServerEvent, prefs: NotificationPrefs, appInForeground: Boolean): NotificationSpec? {
     if (!prefs.enabled) return null
     val sid = event.sessionId ?: return null
-    val id = notificationId(event.type, sid)
+    val id = notificationId(
+        event.type,
+        if (event.type == Notif.EVENT_APPROVAL) approvalKey(sid, event.str("rpc_id")) else sid,
+    )
     return when (event.type) {
         Notif.EVENT_APPROVAL -> if (!prefs.approvals) null else {
             val elevated = tierFor(event.bool("allow_permanent") ?: false) == ApprovalTier.ELEVATED
+            // Each action names its approval, so answering one never resolves a different queued one.
+            val rid = event.str("request_id")
             NotificationSpec(
                 id = id,
                 channelId = Notif.CHANNEL_APPROVALS,
@@ -55,11 +65,11 @@ fun toNotificationSpec(event: ServerEvent, prefs: NotificationPrefs, appInForegr
                     ?: event.str("command")?.ifBlank { null }
                     ?: "The agent is waiting for your approval.",
                 route = "chat/$sid",
-                actions = if (elevated) listOf(NotifAction("Deny", Notif.ACTION_DENY, sid))
+                actions = if (elevated) listOf(NotifAction("Deny", Notif.ACTION_DENY, sid, requestId = rid))
                           else listOf(
-                              NotifAction("Allow once", Notif.ACTION_ALLOW_ONCE, sid),
-                              NotifAction("Session", Notif.ACTION_ALLOW_SESSION, sid),
-                              NotifAction("Deny", Notif.ACTION_DENY, sid),
+                              NotifAction("Allow once", Notif.ACTION_ALLOW_ONCE, sid, requestId = rid),
+                              NotifAction("Session", Notif.ACTION_ALLOW_SESSION, sid, requestId = rid),
+                              NotifAction("Deny", Notif.ACTION_DENY, sid, requestId = rid),
                           ),
                 groupKey = "approval",
             )

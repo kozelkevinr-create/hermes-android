@@ -31,7 +31,14 @@ import com.hermes.client.ui.theme.LocalProfileAccent
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ApprovalSheet(req: ApprovalRequest, onRespond: (ApprovalChoice) -> Unit, onDismiss: () -> Unit) {
+fun ApprovalSheet(
+    req: ApprovalRequest,
+    onRespond: (ApprovalChoice) -> Unit,
+    onDismiss: () -> Unit,
+    queuedBehind: Int = 0,
+    /** Whether swiping the sheet away is allowed. Chat approvals must be answered; the app-wide one can be put off. */
+    dismissible: Boolean = false,
+) {
     val accent = LocalProfileAccent.current
     val tier = tierFor(req.allowPermanent)
     val error = MaterialTheme.colorScheme.error
@@ -41,12 +48,13 @@ fun ApprovalSheet(req: ApprovalRequest, onRespond: (ApprovalChoice) -> Unit, onD
     // An approval must be an explicit choice: veto the Hidden transition so a swipe / scrim-tap
     // can't dismiss the sheet while pendingApproval is still set (which would desync — sheet gone
     // but state still blocked). The sheet leaves composition only when a choice clears the pending.
-    val sheetState = rememberModalBottomSheetState(confirmValueChange = { it != SheetValue.Hidden })
+    val sheetState = rememberModalBottomSheetState(confirmValueChange = { dismissible || it != SheetValue.Hidden })
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
             Text(
-                (if (tier == ApprovalTier.ELEVATED) "Elevated" else "Approval needed") + label,
+                (if (tier == ApprovalTier.ELEVATED) "Elevated" else "Approval needed") + label +
+                    (if (queuedBehind > 0) " · +$queuedBehind more" else ""),
                 style = MaterialTheme.typography.titleMedium,
                 color = badge,
             )
@@ -106,17 +114,20 @@ fun ApprovalSheet(req: ApprovalRequest, onRespond: (ApprovalChoice) -> Unit, onD
                         .semantics { contentDescription = "Deny" },
                     colors = ButtonDefaults.buttonColors(containerColor = error),
                 ) { Text("Deny") }
-                TextButton(
-                    onClick = { thisRun = !thisRun },
-                    modifier = Modifier.fillMaxWidth()
-                        .semantics { contentDescription = "Toggle allow scope" },
-                ) {
-                    Text(if (thisRun) "Scope: allow for this run" else "Scope: allow once")
+                // A reviewer-denied command offers only "once"; a run-wide scope would be refused.
+                if (!req.smartDenied) {
+                    TextButton(
+                        onClick = { thisRun = !thisRun },
+                        modifier = Modifier.fillMaxWidth()
+                            .semantics { contentDescription = "Toggle allow scope" },
+                    ) {
+                        Text(if (thisRun) "Scope: allow for this run" else "Scope: allow once")
+                    }
                 }
                 SlideToConfirm(
-                    label = if (thisRun) "  → slide to allow this run" else "  → slide to allow once",
+                    label = if (thisRun && !req.smartDenied) "  → slide to allow this run" else "  → slide to allow once",
                     accent = accent.accent,
-                    onConfirm = { onRespond(if (thisRun) ApprovalChoice.SESSION else ApprovalChoice.ONCE) },
+                    onConfirm = { onRespond(if (thisRun && !req.smartDenied) ApprovalChoice.SESSION else ApprovalChoice.ONCE) },
                     modifier = Modifier.padding(vertical = 8.dp)
                         .semantics { contentDescription = "Slide to allow" },
                 )
