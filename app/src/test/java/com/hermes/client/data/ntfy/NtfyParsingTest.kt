@@ -38,7 +38,12 @@ class NtfyParsingTest {
         assertNull(parseNtfyLine(json, "not json"))
     }
 
-    @Test fun delete_event_withdraws_the_message() {
+    @Test fun delete_event_withdraws_the_message_named_by_sequence_id() {
+        val ev = parseNtfyLine(json, """{"id":"del9","time":2,"event":"message_delete","topic":"approvals","sequence_id":"m1"}""")
+        assertEquals(NtfyEvent.Withdrawn("m1", "approvals"), ev)
+    }
+
+    @Test fun delete_event_without_a_sequence_id_falls_back_to_its_own_id() {
         val ev = parseNtfyLine(json, """{"id":"m1","time":2,"event":"message_delete","topic":"approvals"}""")
         assertEquals(NtfyEvent.Withdrawn("m1", "approvals"), ev)
     }

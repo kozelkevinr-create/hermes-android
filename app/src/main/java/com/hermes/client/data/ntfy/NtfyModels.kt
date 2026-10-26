@@ -75,8 +75,9 @@ fun parseNtfyLine(json: Json, line: String): NtfyEvent? {
                 } ?: emptyList(),
             ),
         )
-        // A deleted message arrives as an event naming the original id.
-        "message_delete", "message_expire" -> NtfyEvent.Withdrawn(id, topic)
+        // A delete is its own event with a fresh id; the message it withdraws is named by sequence_id
+        // (which is the original message id unless the publisher chose another sequence).
+        "message_delete", "message_expire" -> NtfyEvent.Withdrawn(obj.str("sequence_id") ?: id, topic)
         else -> null
     }
 }
