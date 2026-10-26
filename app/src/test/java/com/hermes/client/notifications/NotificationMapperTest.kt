@@ -152,4 +152,19 @@ class NotificationMapperTest {
         assertNull(toNotificationSpec(event("message.delta"), on, appInForeground = false))
         assertNull(toNotificationSpec(event(Notif.EVENT_APPROVAL, sid = null), on, appInForeground = false))
     }
+
+    @Test fun request_cancel_clears_the_matching_approval_notification() {
+        val approval = ServerEvent("approval.request", "s1", buildJsonObject { })
+        val spec = toNotificationSpec(approval, on, appInForeground = false)!!
+        val cancel = ServerEvent("request.cancel", "s1", buildJsonObject {
+            put("id", "srq-1"); put("method", "approval"); put("reason", "resolved")
+        })
+        assertEquals(spec.id, cancelledRequestNotificationId(cancel))
+    }
+
+    @Test fun request_cancel_for_other_methods_or_events_clears_nothing() {
+        val sudo = ServerEvent("request.cancel", "s1", buildJsonObject { put("method", "sudo") })
+        assertEquals(null, cancelledRequestNotificationId(sudo))
+        assertEquals(null, cancelledRequestNotificationId(ServerEvent("message.complete", "s1", buildJsonObject { })))
+    }
 }
