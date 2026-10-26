@@ -64,6 +64,12 @@ private class FakeTimeline : MatrixTimelineHandle {
         return receiptResult
     }
 
+    val reactionsToggled = mutableListOf<Pair<EventOrTxnId, String>>()
+    override suspend fun toggleReaction(itemId: EventOrTxnId, key: String): Boolean {
+        reactionsToggled += itemId to key
+        return true
+    }
+
     override suspend fun edit(itemId: EventOrTxnId, newBody: String): Boolean {
         edits += itemId to newBody
         return editResult
@@ -232,6 +238,20 @@ class MatrixRoomViewModelTest {
         // At the start, no further page is requested.
         vm.loadMore()
         assertEquals(2, timeline.pages)
+    }
+
+    @Test
+    fun toggling_a_reaction_goes_to_the_timeline() = runTest {
+        rooms.value = listOf(readySummary())
+        val timeline = FakeTimeline()
+        nextTimeline = timeline
+        matrix.value = MatrixState.Ready("@a:example.test", "D", "https://hs", "@bot:example.test")
+        val vm = vm()
+
+        vm.toggleReaction(EventOrTxnId.Event("\$e1"), "👍")
+        advanceUntilIdle()
+
+        assertEquals(listOf<Pair<EventOrTxnId, String>>(EventOrTxnId.Event("\$e1") to "👍"), timeline.reactionsToggled)
     }
 
     @Test

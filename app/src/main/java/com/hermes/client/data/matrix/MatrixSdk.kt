@@ -240,6 +240,9 @@ interface MatrixTimelineHandle {
     /** Edits [itemId]'s text message to the markdown [newBody]; false when it could not be applied. Never throws. */
     suspend fun edit(itemId: EventOrTxnId, newBody: String): Boolean
 
+    /** Adds the current user's [key] reaction to [itemId], or removes it if already there; false on failure. Never throws. */
+    suspend fun toggleReaction(itemId: EventOrTxnId, key: String): Boolean = false
+
     /** Sends a public read receipt for the remote event id [eventId]; false when it was rejected. Never throws. */
     suspend fun sendReadReceipt(eventId: String): Boolean
 

@@ -50,3 +50,48 @@ class ApprovalInboxTest {
         assertEquals(0, emptyList<PendingApproval>().applyApprovalEvent(ev, 1).size)
     }
 }
+
+class NtfyApprovalInboxTest {
+    private fun ntfy(id: String, rid: String, allowed: Set<com.hermes.client.ui.chat.ApprovalChoice>) =
+        com.hermes.client.data.ntfy.NtfyApproval(id, rid, "n".repeat(20), "http://r", allowed, "T", "d", "cmd")
+    private val all = com.hermes.client.ui.chat.ApprovalChoice.entries.toSet()
+
+    @org.junit.Test fun ntfy_approval_joins_the_list_once() {
+        val list = emptyList<PendingApproval>()
+            .withNtfyApproval(ntfy("m1", "r".repeat(32), all), 1)
+            .withNtfyApproval(ntfy("m1", "r".repeat(32), all), 2)
+        org.junit.Assert.assertEquals(listOf(ntfyApprovalKey("m1")), list.map { it.rpcId })
+    }
+
+    @org.junit.Test fun always_allowed_means_standard_tier_and_missing_session_means_one_shot() {
+        val full = emptyList<PendingApproval>().withNtfyApproval(ntfy("m1", "a".repeat(32), all), 1).single()
+        org.junit.Assert.assertTrue(full.request.allowPermanent)
+        org.junit.Assert.assertFalse(full.request.smartDenied)
+        val once = emptyList<PendingApproval>().withNtfyApproval(
+            ntfy("m2", "b".repeat(32), setOf(com.hermes.client.ui.chat.ApprovalChoice.ONCE, com.hermes.client.ui.chat.ApprovalChoice.DENY)), 1,
+        ).single()
+        org.junit.Assert.assertFalse(once.request.allowPermanent)
+        org.junit.Assert.assertTrue(once.request.smartDenied)
+    }
+}
+
+class ApprovalNotificationIdTest {
+    @org.junit.Test fun ntfy_approval_uses_the_ntfy_notification_id() {
+        val a = com.hermes.client.data.ntfy.NtfyApproval("m9", "r".repeat(32), "n".repeat(20), "http://r", setOf(com.hermes.client.ui.chat.ApprovalChoice.DENY), "T", "d", "c")
+        val item = emptyList<PendingApproval>().withNtfyApproval(a, 1).single()
+        org.junit.Assert.assertEquals(com.hermes.client.notifications.ntfyNotificationId("m9"), notificationIdFor(item))
+    }
+
+    @org.junit.Test fun gateway_approval_uses_the_per_approval_notification_id() {
+        val ev = com.hermes.client.data.network.ServerEvent(
+            "approval.request", "s1",
+            kotlinx.serialization.json.buildJsonObject {
+                put("rpc_id", kotlinx.serialization.json.JsonPrimitive("srq-1"))
+                put("request_id", kotlinx.serialization.json.JsonPrimitive("r1"))
+            },
+        )
+        val item = emptyList<PendingApproval>().applyApprovalEvent(ev, 1).single()
+        val spec = com.hermes.client.notifications.toNotificationSpec(ev, com.hermes.client.notifications.NotificationPrefs(enabled = true), false)!!
+        org.junit.Assert.assertEquals(spec.id, notificationIdFor(item))
+    }
+}

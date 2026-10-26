@@ -357,6 +357,18 @@ class MatrixRoomViewModel internal constructor(
      * send button becomes "save edit". Ignored while a send is in flight or already editing, both
      * leave the composer unchanged.
      */
+    /** Toggles the current user's [key] reaction on [itemId]; a failure is logged by the SDK layer and dropped. */
+    fun toggleReaction(itemId: EventOrTxnId, key: String) {
+        viewModelScope.launch {
+            try {
+                timeline?.toggleReaction(itemId, key)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
+        }
+    }
+
     fun beginEdit(itemId: EventOrTxnId, body: String) {
         if (_sending.value) return
         if (_editing.value != null) return

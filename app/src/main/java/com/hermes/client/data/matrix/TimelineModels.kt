@@ -4,6 +4,9 @@ package com.hermes.client.data.matrix
  * SDK-independent timeline model. The debug/SDK layer maps the FFI `TimelineItem` types onto these;
  * everything downstream (presentation, ViewModel) works on this pure model so it is JVM-testable.
  */
+/** One emoji reaction on a message: how many people used [key] and whether the current user is one. */
+data class ReactionSummary(val key: String, val count: Int, val mine: Boolean)
+
 sealed interface TimelineEntry {
     /** A virtual date divider between two days. */
     data class DayDivider(val ts: Long) : TimelineEntry
@@ -25,6 +28,7 @@ sealed interface TimelineEntry {
         val isEditable: Boolean = false,
         /** SDK identity used to retry or abort this event's local echo, when known. */
         val itemId: EventOrTxnId? = null,
+        val reactions: List<ReactionSummary> = emptyList(),
     ) : TimelineEntry
 
     /** An event we could not decrypt, shown as "Encrypted message". */

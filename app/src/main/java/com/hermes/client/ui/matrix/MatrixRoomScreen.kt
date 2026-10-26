@@ -229,6 +229,7 @@ fun MatrixRoomScreen(
                             onRetrySend = vm::retrySend,
                             onAbortSend = vm::abortSend,
                             onBeginEdit = vm::beginEdit,
+                            onReact = vm::toggleReaction,
                             onVisibleKeysChanged = vm::onVisibleKeysChanged,
                         )
                     }
@@ -314,6 +315,7 @@ private fun TimelineContent(
     onRetrySend: (EventOrTxnId) -> Unit,
     onAbortSend: (EventOrTxnId) -> Unit,
     onBeginEdit: (EventOrTxnId, String) -> Unit,
+    onReact: (EventOrTxnId, String) -> Unit,
     onVisibleKeysChanged: (Set<String>, Boolean) -> Unit,
 ) {
     val listState = rememberLazyListState()
@@ -361,7 +363,7 @@ private fun TimelineContent(
             when (row) {
                 is TimelineRow.DayDivider -> CentredLabel(row.label)
                 is TimelineRow.State -> CentredLabel(row.text)
-                is TimelineRow.Message -> MessageRow(row, onRetrySend, onAbortSend, onBeginEdit)
+                is TimelineRow.Message -> MessageRow(row, onRetrySend, onAbortSend, onBeginEdit, onReact)
             }
         }
         // The footer is the last item, so with reverseLayout it sits at the very top (oldest edge).
@@ -420,14 +422,15 @@ private fun MessageRow(
     onRetrySend: (EventOrTxnId) -> Unit,
     onAbortSend: (EventOrTxnId) -> Unit,
     onBeginEdit: (EventOrTxnId, String) -> Unit,
+    onReact: (EventOrTxnId, String) -> Unit,
 ) {
     when {
-        row.isUtd -> Bubble(row, onRetrySend, onAbortSend, onBeginEdit, content = { MutedText("Encrypted message") })
+        row.isUtd -> Bubble(row, onRetrySend, onAbortSend, onBeginEdit, onReact, content = { MutedText("Encrypted message") })
         row.kind == MessageKind.IMAGE ->
-            Bubble(row, onRetrySend, onAbortSend, onBeginEdit, content = { MutedText(attachmentLabel("image", row.body)) })
+            Bubble(row, onRetrySend, onAbortSend, onBeginEdit, onReact, content = { MutedText(attachmentLabel("image", row.body)) })
         row.kind == MessageKind.FILE ->
-            Bubble(row, onRetrySend, onAbortSend, onBeginEdit, content = { MutedText(attachmentLabel("file", row.body)) })
-        else -> Bubble(row, onRetrySend, onAbortSend, onBeginEdit, content = { BodyText(row) })
+            Bubble(row, onRetrySend, onAbortSend, onBeginEdit, onReact, content = { MutedText(attachmentLabel("file", row.body)) })
+        else -> Bubble(row, onRetrySend, onAbortSend, onBeginEdit, onReact, content = { BodyText(row) })
     }
 }
 
@@ -454,6 +457,7 @@ private fun Bubble(
     onRetrySend: (EventOrTxnId) -> Unit,
     onAbortSend: (EventOrTxnId) -> Unit,
     onBeginEdit: (EventOrTxnId, String) -> Unit,
+    onReact: (EventOrTxnId, String) -> Unit,
     content: @Composable () -> Unit,
 ) {
     val isOwn = row.isOwn
@@ -466,7 +470,10 @@ private fun Bubble(
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     val canCopy = !row.isUtd && row.kind in setOf(MessageKind.TEXT, MessageKind.NOTICE, MessageKind.EMOTE) && row.body.isNotBlank()
     val canEdit = row.isEditable && itemId != null
-    val pressModifier = if (canCopy || canEdit) {
+    // Reactions target a remote event, so a local echo that has no event id yet can't take one.
+    val canReact = itemId is EventOrTxnId.Event && !row.isUtd
+    var pickerOpen by remember { mutableStateOf(false) }
+    val pressModifier = if (canCopy || canEdit || canReact) {
         Modifier.combinedClickable(onClick = {}, onLongClick = { menuOpen = true })
     } else {
         Modifier
@@ -499,6 +506,24 @@ private fun Bubble(
             Surface(color = bubbleBg, shape = shape, modifier = pressModifier) {
                 Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        if (canReact) {
+                            Row(Modifier.padding(horizontal = 8.dp)) {
+                                QUICK_REACTIONS.forEach { emoji ->
+                                    Text(
+                                        emoji,
+                                        style = MaterialTheme.typography.titleLarge,
+                                        modifier = Modifier
+                                            .clickable { menuOpen = false; onReact(itemId!!, emoji) }
+                                            .padding(6.dp)
+                                            .semantics { contentDescription = "React $emoji" },
+                                    )
+                                }
+                            }
+                            DropdownMenuItem(
+                                text = { Text("More reactions…") },
+                                onClick = { menuOpen = false; pickerOpen = true },
+                            )
+                        }
                         if (canCopy) {
                             DropdownMenuItem(
                                 text = { Text("Copy text") },
@@ -519,6 +544,23 @@ private fun Bubble(
                         }
                     }
                     content()
+                    if (pickerOpen && itemId != null) {
+                        androidx.compose.material3.AlertDialog(
+                            onDismissRequest = { pickerOpen = false },
+                            confirmButton = { TextButton(onClick = { pickerOpen = false }) { Text("Close") } },
+                            title = { Text("React") },
+                            text = { EmojiPanel(onPick = { pickerOpen = false; onReact(itemId, it) }) },
+                        )
+                    }
+                    if (row.reactions.isNotEmpty() && itemId != null) {
+                        @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+                        androidx.compose.foundation.layout.FlowRow(
+                            Modifier.padding(top = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            row.reactions.forEach { r -> ReactionChip(r) { onReact(itemId, r.key) } }
+                        }
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             row.time,
@@ -713,6 +755,22 @@ private fun MessageComposer(
                 }
             }
         }
+    }
+}
+
+private val QUICK_REACTIONS = listOf("👍", "❤️", "😂", "🎉", "😮", "🙏")
+
+/** A reaction pill: the emoji and its count, tinted when the current user is among the reactors. */
+@Composable
+private fun ReactionChip(r: com.hermes.client.data.matrix.ReactionSummary, onClick: () -> Unit) {
+    val bg = if (r.mine) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surface
+    Surface(color = bg, shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp), modifier = Modifier.clickable(onClick = onClick)
+        .semantics { contentDescription = "${r.key} ${r.count}" + if (r.mine) ", you reacted" else "" }) {
+        Text(
+            "${r.key} ${r.count}",
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+        )
     }
 }
 
