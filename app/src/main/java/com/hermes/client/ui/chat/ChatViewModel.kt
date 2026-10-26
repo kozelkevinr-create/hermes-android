@@ -258,11 +258,13 @@ class ChatViewModel @Inject constructor(
     fun clearPathItems() { _pathItems.value = emptyList() }
 
     fun respondApproval(choice: ApprovalChoice) {
+        val requestId = _state.value.pendingApproval?.requestId
         _state.value = _state.value.copy(pendingApproval = null)
         viewModelScope.launch {
-            runCatching { chat.respondApproval(sessionId, choice) }
+            runCatching { chat.respondApproval(sessionId, choice, requestId) }
                 .onFailure {
                     if (it is kotlinx.coroutines.CancellationException) throw it
+                    com.hermes.client.data.diagnostics.DebugLog.log("chat", "approval.respond failed: ${it.message}")
                     // The sheet is already gone; surface the failure so a lost approve/deny is visible.
                     appendError("Couldn't send your approval — check the connection and try again.")
                 }

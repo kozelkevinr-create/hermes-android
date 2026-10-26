@@ -7,6 +7,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AdminPanelSettings
+import androidx.compose.material.icons.rounded.GppMaybe
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.BarChart
@@ -28,6 +29,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.hermes.client.ui.components.HermesTopBar
@@ -44,7 +47,12 @@ import com.hermes.client.ui.components.HubRow
 private const val OBSIDIAN_VAULT_PATH = "/home/spaulding/stacks/obsidian/vault"
 
 @Composable
-fun BrainHubScreen(onNavigate: (String) -> Unit, onOpenPalette: () -> Unit = {}) {
+fun BrainHubScreen(
+    onNavigate: (String) -> Unit,
+    onOpenPalette: () -> Unit = {},
+    approvals: com.hermes.client.ui.approvals.ApprovalsViewModel = androidx.hilt.navigation.compose.hiltViewModel(),
+) {
+    val waiting by approvals.pending.collectAsStateWithLifecycle()
     Scaffold(
         topBar = {
             HermesTopBar(
@@ -64,6 +72,13 @@ fun BrainHubScreen(onNavigate: (String) -> Unit, onOpenPalette: () -> Unit = {})
         Column(
             Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()),
         ) {
+            SectionLabel("ATTENTION")
+            HubRow(
+                Icons.Rounded.GppMaybe, "Approvals",
+                if (waiting.isEmpty()) "Nothing waiting" else "${waiting.size} waiting for your decision",
+            ) { onNavigate(NavRoutes.APPROVALS) }
+
+            HorizontalDivider()
             SectionLabel("KNOWLEDGE")
             HubRow(Icons.Rounded.AutoAwesome, "Skills", "Browse, toggle and edit skills") {
                 onNavigate("agents_tools")

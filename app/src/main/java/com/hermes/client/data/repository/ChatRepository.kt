@@ -134,11 +134,13 @@ class ChatRepository(private val client: HermesGatewayClient) {
         })
     }
 
-    suspend fun respondApproval(sessionId: String, choice: ApprovalChoice) {
+    suspend fun respondApproval(sessionId: String, choice: ApprovalChoice, requestId: String? = null) {
+        // The gateway validates params strictly (no extra keys); request_id lets it find the approval
+        // when the session handle went stale across a reconnect.
         client.call("approval.respond", buildJsonObject {
             put("session_id", sessionId)
             put("choice", choice.wire)
-            put("approved", choice != ApprovalChoice.DENY)
+            if (!requestId.isNullOrBlank()) put("request_id", requestId)
         })
     }
 
