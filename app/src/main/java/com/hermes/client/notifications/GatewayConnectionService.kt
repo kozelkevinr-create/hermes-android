@@ -120,6 +120,7 @@ class GatewayConnectionService : Service() {
                 // One malformed/unexpected event must not crash the process — mirror the guard
                 // ChatViewModel's reduce() uses around event handling.
                 runCatching {
+                    cancelledRequestNotificationId(event)?.let { notifier.cancel(it) }
                     toNotificationSpec(event, latestPrefs, appInForeground)?.let { notifier.post(it) }
                     updateRunProgress(event)
                 }

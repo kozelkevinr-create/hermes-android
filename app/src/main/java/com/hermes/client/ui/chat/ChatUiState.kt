@@ -107,6 +107,12 @@ fun ChatUiState.reduce(event: ServerEvent): ChatUiState {
                 event.str("question") ?: "", emptyList(), event.str("request_id") ?: "",
             ),
         )
+        // The gateway withdrew an open approval/clarify (answered elsewhere, timed out, interrupted).
+        "request.cancel" -> when (event.str("method")) {
+            "approval" -> state.copy(pendingApproval = null)
+            "clarify" -> state.copy(pendingClarify = null)
+            else -> state
+        }
         "error" -> state.copy(
             messages = state.messages + ChatMessage(
                 id = "e-${state.messages.size}", role = Role.SYSTEM,

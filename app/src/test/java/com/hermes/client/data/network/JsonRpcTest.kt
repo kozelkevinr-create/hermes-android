@@ -43,4 +43,39 @@ class JsonRpcTest {
         assertEquals("s1", ev.sessionId)
         assertEquals("hello", ev.payload["delta"]!!.toString().trim('"'))
     }
+
+    @Test fun parses_server_request_with_string_id() {
+        val line = """{"jsonrpc":"2.0","id":"srq-1a2b3c","method":"approval","params":{"session_id":"s1","request_id":"r9","command":"rm -rf x","choices":["once","deny"]}}"""
+        val msg = parseInbound(json, line)
+        assertTrue(msg is RpcServerRequest)
+        val req = msg as RpcServerRequest
+        assertEquals("srq-1a2b3c", req.id)
+        val ev = serverRequestToEvent(req)!!
+        assertEquals("approval.request", ev.type)
+        assertEquals("s1", ev.sessionId)
+        assertEquals("rm -rf x", ev.payload["command"]!!.toString().trim('"'))
+    }
+
+    @Test fun clarify_request_maps_first_question_and_rpc_id() {
+        val line = """{"jsonrpc":"2.0","id":"srq-77","method":"clarify","params":{"session_id":"s1","questions":[{"qid":"q1","question":"Which one?"},{"qid":"q2","question":"Also?"}]}}"""
+        val ev = serverRequestToEvent(parseInbound(json, line) as RpcServerRequest)!!
+        assertEquals("clarify.request", ev.type)
+        assertEquals("srq-77", ev.payload["request_id"]!!.toString().trim('"'))
+        assertEquals("q1", ev.payload["qid"]!!.toString().trim('"'))
+        assertEquals("Which one?", ev.payload["question"]!!.toString().trim('"'))
+    }
+
+    @Test fun unsupported_server_request_has_no_event() {
+        val line = """{"jsonrpc":"2.0","id":"srq-5","method":"sudo","params":{"session_id":"s1"}}"""
+        assertEquals(null, serverRequestToEvent(parseInbound(json, line) as RpcServerRequest))
+    }
+
+    @Test fun server_replies_echo_the_string_id() {
+        val ok = encodeServerResult(json, "srq-9", kotlinx.serialization.json.buildJsonObject {
+            kotlinx.serialization.json.JsonPrimitive("x")
+        })
+        assertTrue(ok.contains("\"id\":\"srq-9\""))
+        val err = encodeServerError(json, "srq-9", RPC_METHOD_NOT_FOUND, "no")
+        assertTrue(err.contains("\"id\":\"srq-9\"") && err.contains("-32601"))
+    }
 }
