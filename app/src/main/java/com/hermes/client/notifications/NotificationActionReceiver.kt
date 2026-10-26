@@ -57,7 +57,8 @@ class NotificationActionReceiver : BroadcastReceiver() {
                 runCatching {
                     withTimeout(8_000) {
                         when (ra) {
-                            is ReceiverAction.Approval -> chat.respondApproval(sid, ra.choice)
+                            is ReceiverAction.Approval ->
+                                chat.respondApproval(sid, ra.choice, intent.getStringExtra("request_id")?.ifBlank { null })
                             ReceiverAction.Reply -> {
                                 val requestId = intent.getStringExtra("request_id").orEmpty()
                                 chat.respondClarify(sid, requestId, replyText!!)

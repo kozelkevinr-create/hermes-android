@@ -31,7 +31,12 @@ import com.hermes.client.ui.theme.LocalProfileAccent
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ApprovalSheet(req: ApprovalRequest, onRespond: (ApprovalChoice) -> Unit, onDismiss: () -> Unit) {
+fun ApprovalSheet(
+    req: ApprovalRequest,
+    onRespond: (ApprovalChoice) -> Unit,
+    onDismiss: () -> Unit,
+    queuedBehind: Int = 0,
+) {
     val accent = LocalProfileAccent.current
     val tier = tierFor(req.allowPermanent)
     val error = MaterialTheme.colorScheme.error
@@ -46,7 +51,8 @@ fun ApprovalSheet(req: ApprovalRequest, onRespond: (ApprovalChoice) -> Unit, onD
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
             Text(
-                (if (tier == ApprovalTier.ELEVATED) "Elevated" else "Approval needed") + label,
+                (if (tier == ApprovalTier.ELEVATED) "Elevated" else "Approval needed") + label +
+                    (if (queuedBehind > 0) " · +$queuedBehind more" else ""),
                 style = MaterialTheme.typography.titleMedium,
                 color = badge,
             )
