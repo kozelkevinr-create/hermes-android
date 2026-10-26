@@ -112,17 +112,20 @@ fun ApprovalSheet(
                         .semantics { contentDescription = "Deny" },
                     colors = ButtonDefaults.buttonColors(containerColor = error),
                 ) { Text("Deny") }
-                TextButton(
-                    onClick = { thisRun = !thisRun },
-                    modifier = Modifier.fillMaxWidth()
-                        .semantics { contentDescription = "Toggle allow scope" },
-                ) {
-                    Text(if (thisRun) "Scope: allow for this run" else "Scope: allow once")
+                // A reviewer-denied command offers only "once"; a run-wide scope would be refused.
+                if (!req.smartDenied) {
+                    TextButton(
+                        onClick = { thisRun = !thisRun },
+                        modifier = Modifier.fillMaxWidth()
+                            .semantics { contentDescription = "Toggle allow scope" },
+                    ) {
+                        Text(if (thisRun) "Scope: allow for this run" else "Scope: allow once")
+                    }
                 }
                 SlideToConfirm(
-                    label = if (thisRun) "  → slide to allow this run" else "  → slide to allow once",
+                    label = if (thisRun && !req.smartDenied) "  → slide to allow this run" else "  → slide to allow once",
                     accent = accent.accent,
-                    onConfirm = { onRespond(if (thisRun) ApprovalChoice.SESSION else ApprovalChoice.ONCE) },
+                    onConfirm = { onRespond(if (thisRun && !req.smartDenied) ApprovalChoice.SESSION else ApprovalChoice.ONCE) },
                     modifier = Modifier.padding(vertical = 8.dp)
                         .semantics { contentDescription = "Slide to allow" },
                 )

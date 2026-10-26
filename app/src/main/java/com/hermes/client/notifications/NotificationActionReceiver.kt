@@ -38,6 +38,7 @@ fun receiverActionFor(action: String?): ReceiverAction = when (action) {
 @AndroidEntryPoint
 class NotificationActionReceiver : BroadcastReceiver() {
     @Inject lateinit var chat: ChatRepository
+    @Inject lateinit var inbox: com.hermes.client.data.repository.ApprovalInbox
     @Inject lateinit var notifier: HermesNotifier
 
     override fun onReceive(context: Context, intent: Intent) {

@@ -25,6 +25,9 @@ class GatewayConnectionService : Service() {
     @Inject lateinit var notifier: HermesNotifier
     @Inject lateinit var profiles: com.hermes.client.data.repository.ProfileManager
     @Inject lateinit var matrix: com.hermes.client.data.matrix.MatrixClientManager
+    @Inject lateinit var ntfy: com.hermes.client.data.ntfy.NtfyListener
+    @Inject lateinit var ntfyStore: com.hermes.client.data.ntfy.NtfyStore
+    @Inject lateinit var approvalInbox: com.hermes.client.data.repository.ApprovalInbox
 
     // Held separately (not just scope.coroutineContext[Job]) so onDestroy can register an
     // invokeOnCompletion callback on it directly — see onDestroy for why.
@@ -113,6 +116,31 @@ class GatewayConnectionService : Service() {
                     diff.posts.forEach { notifier.post(it) }
                 }
                 previous = next
+            }
+        }
+        // ntfy subscriptions: approvals join the inbox (and notify with their buttons), everything else
+        // is a plain alert, and a withdrawn message clears its card and notification.
+        ntfy.start(scope)
+        scope.launch {
+            var topics = emptyList<com.hermes.client.data.ntfy.NtfyTopic>()
+            launch { ntfyStore.config.collect { topics = it.topics } }
+            ntfy.events.collect { ev ->
+                runCatching {
+                    val kindOf = { topic: String -> topics.firstOrNull { it.topic == topic }?.kind }
+                    when (val d = com.hermes.client.data.ntfy.classifyNtfy(ev, kindOf)) {
+                        is com.hermes.client.data.ntfy.NtfyDelivery.Approval -> {
+                            approvalInbox.addNtfy(d.approval)
+                            ntfyNotificationSpec(d.message, d.approval, latestPrefs)?.let { notifier.post(it) }
+                        }
+                        is com.hermes.client.data.ntfy.NtfyDelivery.Alert ->
+                            ntfyNotificationSpec(d.message, null, latestPrefs)?.let { notifier.post(it) }
+                        is com.hermes.client.data.ntfy.NtfyDelivery.Withdraw -> {
+                            approvalInbox.removeNtfy(d.messageId)
+                            notifier.cancel(ntfyNotificationId(d.messageId))
+                        }
+                        null -> Unit
+                    }
+                }
             }
         }
         scope.launch {

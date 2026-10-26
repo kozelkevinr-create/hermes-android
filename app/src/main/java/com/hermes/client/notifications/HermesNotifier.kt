@@ -38,6 +38,9 @@ class HermesNotifier(private val context: Context) {
             },
         )
         sys.createNotificationChannel(
+            NotificationChannel(Notif.CHANNEL_NTFY, "Subscribed alerts", NotificationManager.IMPORTANCE_DEFAULT),
+        )
+        sys.createNotificationChannel(
             NotificationChannel(Notif.CHANNEL_RUN_PROGRESS, "Run progress", NotificationManager.IMPORTANCE_LOW),
         )
     }
