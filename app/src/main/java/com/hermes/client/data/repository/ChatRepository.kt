@@ -18,6 +18,10 @@ data class PathItem(val text: String, val display: String, val meta: String)
 
 class ChatRepository(private val client: HermesGatewayClient) {
     val events: SharedFlow<ServerEvent> get() = client.events
+
+    private val _clarifyAnswered = kotlinx.coroutines.flow.MutableSharedFlow<String>(extraBufferCapacity = 16)
+    /** Request ids of clarifies answered from any surface (chat dialog, notification reply, inbox). */
+    val clarifyAnswered: SharedFlow<String> get() = _clarifyAnswered
     val connectionState: StateFlow<ConnectionState> get() = client.connectionState
 
     fun connect() = client.connect()
@@ -152,6 +156,7 @@ class ChatRepository(private val client: HermesGatewayClient) {
                 put("answers", buildJsonObject { put(qid, answer) })
             })
             if (!sent) throw IllegalStateException("not connected")
+            _clarifyAnswered.tryEmit(requestId)
             return
         }
         client.call("clarify.respond", buildJsonObject {
@@ -159,5 +164,6 @@ class ChatRepository(private val client: HermesGatewayClient) {
             put("request_id", requestId)
             put("answer", answer)
         })
+        _clarifyAnswered.tryEmit(requestId)
     }
 }

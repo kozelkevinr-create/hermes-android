@@ -8,6 +8,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AdminPanelSettings
 import androidx.compose.material.icons.rounded.GppMaybe
+import androidx.compose.material.icons.rounded.QuestionAnswer
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.BarChart
@@ -51,8 +52,10 @@ fun BrainHubScreen(
     onNavigate: (String) -> Unit,
     onOpenPalette: () -> Unit = {},
     approvals: com.hermes.client.ui.approvals.ApprovalsViewModel = androidx.hilt.navigation.compose.hiltViewModel(),
+    clarifications: com.hermes.client.ui.approvals.ClarificationsViewModel = androidx.hilt.navigation.compose.hiltViewModel(),
 ) {
     val waiting by approvals.pending.collectAsStateWithLifecycle()
+    val questions by clarifications.pending.collectAsStateWithLifecycle()
     Scaffold(
         topBar = {
             HermesTopBar(
@@ -77,6 +80,10 @@ fun BrainHubScreen(
                 Icons.Rounded.GppMaybe, "Approvals",
                 if (waiting.isEmpty()) "Nothing waiting" else "${waiting.size} waiting for your decision",
             ) { onNavigate(NavRoutes.APPROVALS) }
+            HubRow(
+                Icons.Rounded.QuestionAnswer, "Clarifications",
+                if (questions.isEmpty()) "Nothing waiting" else "${questions.size} question(s) from the agent",
+            ) { onNavigate(NavRoutes.CLARIFICATIONS) }
 
             HorizontalDivider()
             SectionLabel("KNOWLEDGE")

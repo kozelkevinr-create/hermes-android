@@ -271,6 +271,11 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /** Hides the dialog without answering; the question stays open in the Clarifications inbox. */
+    fun dismissClarify() {
+        _state.value = _state.value.copy(pendingClarify = null)
+    }
+
     fun clarify(answer: String) {
         val requestId = _state.value.pendingClarify?.requestId ?: ""
         _state.value = _state.value.copy(pendingClarify = null)
