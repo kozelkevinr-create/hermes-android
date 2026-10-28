@@ -11,12 +11,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -47,8 +45,8 @@ class ClarificationsViewModel @Inject constructor(private val inbox: ClarifyInbo
     val pending: StateFlow<List<PendingClarify>> =
         inbox.pending.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), inbox.pending.value)
 
-    fun respond(item: PendingClarify, answer: String) {
-        viewModelScope.launch { inbox.respond(item, answer) }
+    fun respond(item: PendingClarify, answers: Map<String, kotlinx.serialization.json.JsonElement>) {
+        viewModelScope.launch { inbox.respond(item, answers) }
     }
 }
 
@@ -112,20 +110,10 @@ fun ClarificationsScreen(onBack: () -> Unit, vm: ClarificationsViewModel = hiltV
     }
 
     open?.let { item ->
-        var answer by remember(item.requestId) { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { openId = null },
-            title = { Text("Clarification") },
-            text = {
-                Column {
-                    Text(item.question)
-                    OutlinedTextField(value = answer, onValueChange = { answer = it }, modifier = Modifier.padding(top = 12.dp))
-                }
-            },
-            confirmButton = {
-                TextButton(enabled = answer.isNotBlank(), onClick = { vm.respond(item, answer.trim()); openId = null }) { Text("Send") }
-            },
-            dismissButton = { TextButton(onClick = { openId = null }) { Text("Close") } },
+        com.hermes.client.ui.chat.ClarifyDialog(
+            questions = item.questions,
+            onSend = { vm.respond(item, it); openId = null },
+            onDismiss = { openId = null },
         )
     }
 }

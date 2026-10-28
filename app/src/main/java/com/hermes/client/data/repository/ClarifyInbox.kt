@@ -1,7 +1,9 @@
 package com.hermes.client.data.repository
 
 import com.hermes.client.data.diagnostics.DebugLog
+import com.hermes.client.data.network.ClarifyQuestion
 import com.hermes.client.data.network.ServerEvent
+import com.hermes.client.data.network.clarifyQuestions
 import com.hermes.client.data.network.str
 import com.hermes.client.notifications.Notif
 import com.hermes.client.notifications.HermesNotifier
@@ -18,9 +20,12 @@ import kotlinx.coroutines.launch
 data class PendingClarify(
     val requestId: String,
     val sessionId: String,
-    val question: String,
+    val questions: List<ClarifyQuestion>,
     val receivedAtMillis: Long,
-)
+) {
+    /** The first question, for list cards. */
+    val question: String get() = questions.firstOrNull()?.question.orEmpty()
+}
 
 /**
  * Folds an event into the open-clarifications list: `clarify.request` adds (deduped by request id),
@@ -32,7 +37,7 @@ fun List<PendingClarify>.applyClarifyEvent(event: ServerEvent, nowMillis: Long):
             val sid = event.sessionId
             val id = event.str("request_id").orEmpty()
             if (sid == null || id.isEmpty() || any { it.requestId == id }) this
-            else this + PendingClarify(id, sid, event.str("question").orEmpty(), nowMillis)
+            else this + PendingClarify(id, sid, event.clarifyQuestions(), nowMillis)
         }
         "request.cancel" ->
             if (event.str("method") == "clarify") filterNot { it.requestId == event.str("id") } else this
@@ -65,8 +70,8 @@ class ClarifyInbox @javax.inject.Inject constructor(
     }
 
     /** Sends [answer]; the card leaves the list once the gateway accepted it. */
-    suspend fun respond(item: PendingClarify, answer: String): Result<Unit> =
-        runCatching { chat.respondClarify(item.sessionId, item.requestId, answer) }
+    suspend fun respond(item: PendingClarify, answers: Map<String, kotlinx.serialization.json.JsonElement>): Result<Unit> =
+        runCatching { chat.respondClarifyAnswers(item.sessionId, item.requestId, answers) }
             .onSuccess { notifier.cancel(notificationId(Notif.EVENT_CLARIFY, item.sessionId)) }
             .onFailure { DebugLog.log("clarify", "respond failed: ${it.message}") }
 }

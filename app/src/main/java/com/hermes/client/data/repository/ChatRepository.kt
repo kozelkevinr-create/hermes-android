@@ -148,12 +148,25 @@ class ChatRepository(private val client: HermesGatewayClient) {
         })
     }
 
+    /** Answers only the first question (a notification reply); the rest go back unanswered. */
     suspend fun respondClarify(sessionId: String, requestId: String, answer: String) {
+        val qid = client.clarifyQid(requestId).orEmpty()
+        respondClarifyAnswers(sessionId, requestId, mapOf(qid to kotlinx.serialization.json.JsonPrimitive(answer)))
+    }
+
+    /**
+     * Answers a clarify by question id: a string, an array of strings (multi-select) or null (skipped).
+     * A qid left out of [answers] comes back to the agent as unanswered.
+     */
+    suspend fun respondClarifyAnswers(
+        sessionId: String,
+        requestId: String,
+        answers: Map<String, kotlinx.serialization.json.JsonElement>,
+    ) {
         // Current gateways ask clarify as a server→client request: answer the frame by its rpc id.
         if (requestId.startsWith(com.hermes.client.data.network.SERVER_REQUEST_PREFIX)) {
-            val qid = client.clarifyQid(requestId).orEmpty()
             val sent = client.respondToRequest(requestId, buildJsonObject {
-                put("answers", buildJsonObject { put(qid, answer) })
+                put("answers", JsonObject(answers))
             })
             if (!sent) throw IllegalStateException("not connected")
             _clarifyAnswered.tryEmit(requestId)
@@ -162,7 +175,7 @@ class ChatRepository(private val client: HermesGatewayClient) {
         client.call("clarify.respond", buildJsonObject {
             put("session_id", sessionId)
             put("request_id", requestId)
-            put("answer", answer)
+            put("answer", (answers.values.firstOrNull() as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty())
         })
         _clarifyAnswered.tryEmit(requestId)
     }
