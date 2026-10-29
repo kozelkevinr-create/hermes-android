@@ -271,10 +271,15 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun clarify(answer: String) {
+    /** Hides the dialog without answering; the question stays open in the Clarifications inbox. */
+    fun dismissClarify() {
+        _state.value = _state.value.copy(pendingClarify = null)
+    }
+
+    fun clarify(answers: Map<String, kotlinx.serialization.json.JsonElement>) {
         val requestId = _state.value.pendingClarify?.requestId ?: ""
         _state.value = _state.value.copy(pendingClarify = null)
-        viewModelScope.launch { runCatching { chat.respondClarify(sessionId, requestId, answer) } }
+        viewModelScope.launch { runCatching { chat.respondClarifyAnswers(sessionId, requestId, answers) } }
     }
 
     /** Appends a non-fatal error as a system message and stops the generating spinner. */

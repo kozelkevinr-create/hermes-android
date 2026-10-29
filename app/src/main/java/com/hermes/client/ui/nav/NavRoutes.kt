@@ -51,6 +51,7 @@ object NavRoutes {
     const val SESSION_ADMIN = "session_admin"
     const val AGENTS_TOOLS = "agents_tools"
     const val APPROVALS = "approvals"
+    const val CLARIFICATIONS = "clarifications"
 }
 
 /** Every route pattern a `composable(...)` may declare, in the order they appear in the NavHost. */
@@ -96,6 +97,7 @@ val NAV_ROUTES: List<String> = listOf(
     NavRoutes.SESSION_ADMIN,
     NavRoutes.AGENTS_TOOLS,
     NavRoutes.APPROVALS,
+    NavRoutes.CLARIFICATIONS,
 )
 
 /**

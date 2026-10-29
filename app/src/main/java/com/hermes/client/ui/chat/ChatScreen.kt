@@ -583,19 +583,11 @@ fun ChatScreen(
     }
 
     state.pendingClarify?.let { req ->
-        var answer by remember { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { vm.clarify("") },
-            title = { Text("Clarification") },
-            text = {
-                Column {
-                    Text(req.question)
-                    OutlinedTextField(value = answer, onValueChange = { answer = it })
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { vm.clarify(answer) }) { Text("Send") }
-            },
+        ClarifyDialog(
+            questions = req.questions,
+            onSend = { vm.clarify(it) },
+            onDismiss = { vm.dismissClarify() },
+            dismissLabel = "Later",
         )
     }
 
