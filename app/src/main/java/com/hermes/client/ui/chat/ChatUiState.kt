@@ -2,6 +2,8 @@ package com.hermes.client.ui.chat
 
 import com.hermes.client.data.network.ServerEvent
 import com.hermes.client.data.network.bool
+import com.hermes.client.data.network.ClarifyQuestion
+import com.hermes.client.data.network.clarifyQuestions
 import com.hermes.client.data.network.str
 import com.hermes.client.data.network.strList
 import com.hermes.client.domain.ChatMessage
@@ -30,7 +32,10 @@ fun approvalRequestFrom(event: ServerEvent) = ApprovalRequest(
     requestId = event.str("request_id") ?: "",
 )
 
-data class ClarifyRequest(val question: String, val options: List<String>, val requestId: String = "")
+data class ClarifyRequest(val questions: List<ClarifyQuestion>, val requestId: String = "") {
+    /** The first question, for one-line summaries. */
+    val question: String get() = questions.firstOrNull()?.question.orEmpty()
+}
 
 data class ChatUiState(
     val messages: List<ChatMessage> = emptyList(),
@@ -110,9 +115,7 @@ fun ChatUiState.reduce(event: ServerEvent): ChatUiState {
         }
         "approval.request" -> state.withApproval(approvalRequestFrom(event))
         "clarify.request" -> state.copy(
-            pendingClarify = ClarifyRequest(
-                event.str("question") ?: "", emptyList(), event.str("request_id") ?: "",
-            ),
+            pendingClarify = ClarifyRequest(event.clarifyQuestions(), event.str("request_id") ?: ""),
         )
         // The gateway withdrew an open approval/clarify (answered elsewhere, timed out, interrupted).
         "request.cancel" -> when (event.str("method")) {
