@@ -5,7 +5,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,6 +25,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.AssistChip
@@ -437,14 +442,21 @@ private fun ThinkingCard(text: String) {
 
 @Composable
 private fun ToolCard(tool: ToolCall) {
-    // Product mode hides raw tool payloads; Technical shows them.
+    // Product mode hides raw tool payloads; Technical shows them, but only once the card is tapped open.
     val technical = com.hermes.client.ui.theme.LocalToolCallTechnical.current
+    val expandable = technical && tool.output.isNotBlank()
+    // Saveable so a card stays open across scrolling away and back or leaving the screen.
+    var expanded by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     Surface(
         tonalElevation = 2.dp,
         shape = com.hermes.client.ui.theme.PanelShape,
         modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
     ) {
-        Column(Modifier.padding(10.dp)) {
+        Column(
+            Modifier
+                .then(if (expandable) Modifier.clickable { expanded = !expanded } else Modifier)
+                .padding(10.dp),
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     if (tool.status == ToolStatus.RUNNING) Icons.Rounded.PlayArrow else Icons.Rounded.Check,
@@ -455,18 +467,27 @@ private fun ToolCard(tool: ToolCall) {
                 Text(
                     text = if (tool.status == ToolStatus.RUNNING) "${tool.name}…" else tool.name,
                     style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.padding(start = 6.dp),
+                    modifier = Modifier.padding(start = 6.dp).weight(1f),
                 )
+                if (expandable) {
+                    Icon(
+                        if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                        contentDescription = if (expanded) "Collapse ${tool.name}" else "Show ${tool.name} output",
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
-            if (technical && tool.output.isNotBlank()) {
+            if (expandable && expanded) {
                 Text(
                     tool.output,
                     style = MaterialTheme.typography.bodySmall,
-                    maxLines = 6,
-                    modifier = Modifier.padding(top = 4.dp),
+                    modifier = Modifier
+                        .padding(top = 4.dp)
+                        .heightIn(max = 280.dp)
+                        .verticalScroll(rememberScrollState()),
                 )
             }
         }
     }
 }
-
