@@ -64,3 +64,30 @@ internal fun ServerEvent.todoCounts(): Pair<Int, Int> {
     }
     return done to total
 }
+
+/** One question of a `clarify` request. [choices] is empty for an open-ended question. */
+data class ClarifyQuestion(
+    val qid: String,
+    val question: String,
+    val choices: List<String> = emptyList(),
+    val multiSelect: Boolean = false,
+)
+
+/**
+ * The questions of a `clarify.request`: the full `questions` array when the mapper passed it through,
+ * else the single `question`/`qid` pair an older event carries. Never empty for a clarify.
+ */
+internal fun ServerEvent.clarifyQuestions(): List<ClarifyQuestion> {
+    val parsed = (payload["questions"] as? JsonArray)?.mapIndexedNotNull { i, el ->
+        val o = el as? JsonObject ?: return@mapIndexedNotNull null
+        val text = (o["question"] as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() } ?: return@mapIndexedNotNull null
+        ClarifyQuestion(
+            qid = (o["qid"] as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() } ?: "q$i",
+            question = text,
+            choices = (o["choices"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.content } ?: emptyList(),
+            multiSelect = (o["multi_select"] as? JsonPrimitive)?.booleanOrNull ?: false,
+        )
+    }
+    if (!parsed.isNullOrEmpty()) return parsed
+    return listOf(ClarifyQuestion(str("qid")?.takeIf { it.isNotBlank() } ?: "q0", str("question") ?: "The agent has a question."))
+}

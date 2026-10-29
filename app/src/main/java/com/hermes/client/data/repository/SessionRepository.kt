@@ -6,6 +6,7 @@ import com.hermes.client.data.network.SessionStatsDto
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Session
 import com.hermes.client.domain.toDomain
+import com.hermes.client.domain.toHistory
 
 /**
  * Mirror the desktop sidebar session list: show interactive, used sessions only. Sessions whose
@@ -67,10 +68,7 @@ class SessionRepository(private val rest: HermesRestApi) {
     // it can't be a unique list key on its own. Prefix the position to guarantee
     // unique, stable ids for the loaded history (the id is display-only).
     suspend fun history(sessionId: String, profile: String? = null): List<ChatMessage> =
-        rest.messages(sessionId, profile).mapIndexed { i, dto ->
-            val m = dto.toDomain()
-            m.copy(id = "h-$i-${m.id}")
-        }
+        rest.messages(sessionId, profile).toHistory()
 
     // All mutations carry the session's profile so the gateway hits the right per-profile DB
     // (otherwise the call 404s and the change silently no-ops).

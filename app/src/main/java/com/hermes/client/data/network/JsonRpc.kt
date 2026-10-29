@@ -90,7 +90,7 @@ const val SERVER_REQUEST_PREFIX = "srq-"
  * Maps the server requests this app can show onto the event shapes the chat reducer and the
  * notification mapper already understand, so neither needs a second code path:
  *  - `approval` → `approval.request` (fields pass through; the approval's own `request_id` stays)
- *  - `clarify`  → `clarify.request` with the FIRST question, `request_id` = the rpc id (what the
+ *  - `clarify`  → `clarify.request` carrying all `questions` (and the FIRST as `question`/`qid`), `request_id` = the rpc id (what the
  *    response frame must echo) and `qid` for the answer map.
  * Null for any other method — the caller declines those with [RPC_METHOD_NOT_FOUND].
  */
@@ -108,6 +108,8 @@ fun serverRequestToEvent(req: RpcServerRequest): ServerEvent? {
                     put("request_id", req.id)
                     put("question", first?.get("question")?.jsonPrimitive?.content ?: "The agent has a question.")
                     put("qid", first?.get("qid")?.jsonPrimitive?.content ?: "")
+                    // Every question, with its choices, so the UI can show the whole form.
+                    (req.params["questions"] as? JsonArray)?.let { put("questions", it) }
                 },
             )
         }

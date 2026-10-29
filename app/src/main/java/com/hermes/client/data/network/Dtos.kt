@@ -47,6 +47,11 @@ import kotlinx.serialization.Serializable
     val id: Int? = null,
     val role: String,
     val content: String? = null,
+    // Stored tool traffic: an assistant row lists its calls, and each result is its own `tool` row.
+    @SerialName("tool_calls") val toolCalls: kotlinx.serialization.json.JsonElement? = null,
+    @SerialName("tool_call_id") val toolCallId: String? = null,
+    @SerialName("tool_name") val toolName: String? = null,
+    @SerialName("display_kind") val displayKind: String? = null,
 )
 @Serializable data class MessagesDto(val messages: List<MessageDto> = emptyList())
 
