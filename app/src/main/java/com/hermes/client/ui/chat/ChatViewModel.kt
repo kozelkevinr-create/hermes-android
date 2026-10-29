@@ -134,7 +134,7 @@ class ChatViewModel @Inject constructor(
             // submit/interrupt and event filtering use the id the gateway actually knows.
             // Pass the active profile: the gateway resolves resume against a per-profile DB,
             // so a session in a non-default profile is "session not found" without it.
-            val handle = runCatching { chat.resume(id, profileManager.active.value) }.getOrNull()
+            val handle = resumeWithRetry(id)
             handle?.let { sessionId = it }
             com.hermes.client.data.diagnostics.DebugLog.log("session", "resume($id) → handle=${handle ?: "none"}")
             // A share may have handed off an image; stage it so it shows as a chip and is
@@ -190,6 +190,28 @@ class ChatViewModel @Inject constructor(
                 prev = cur
             }
         }
+    }
+
+    /**
+     * Reattaches to the live session, retrying a transient refusal (e.g. the gateway still settling a
+     * disconnect). Giving up silently would leave us sending on the stored id instead of the live
+     * handle, which the gateway answers with "this chat is open elsewhere" — so say so instead.
+     */
+    private suspend fun resumeWithRetry(id: String): String? {
+        var last: Exception? = null
+        repeat(3) { attempt ->
+            try {
+                return chat.resume(id, profileManager.active.value)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                last = e
+                com.hermes.client.data.diagnostics.DebugLog.log("session", "resume($id) attempt ${attempt + 1} failed: ${e.message}")
+                kotlinx.coroutines.delay(400L * (attempt + 1))
+            }
+        }
+        appendError("Couldn't reattach to this chat (${last?.message}). Leave and reopen it to try again.")
+        return null
     }
 
     fun stageAttachment(bytes: ByteArray, mimeType: String) {
