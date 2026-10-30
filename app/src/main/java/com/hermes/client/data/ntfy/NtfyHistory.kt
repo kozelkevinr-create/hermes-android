@@ -1,5 +1,6 @@
 package com.hermes.client.data.ntfy
 
+import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -26,6 +27,10 @@ fun mergeNtfyHistory(
     return (keep + rest.take(limit)).sortedByDescending { it.timeSeconds }
 }
 
+/** Messages that arrived after [lastSeenSeconds] and are not pinned (pinned ones are being kept, not waiting). */
+fun unreadNtfyCount(messages: List<NtfyMessage>, pinned: Set<String>, lastSeenSeconds: Long): Int =
+    messages.count { it.timeSeconds > lastSeenSeconds && it.id !in pinned }
+
 /**
  * Every ntfy message the app has received, kept so one that popped up and was swiped away can still be
  * read. Fed live by the connection service and, on request, from what the ntfy server still caches.
@@ -37,6 +42,15 @@ class NtfyHistory @Inject constructor(
 ) {
     val messages = store.history
     val pinned = store.pinned
+
+    /** How many messages arrived since the history was last opened. */
+    val unread = kotlinx.coroutines.flow.combine(store.history, store.pinned, store.lastSeen, ::unreadNtfyCount)
+
+    /** Marks everything received so far as seen. */
+    suspend fun markSeen() {
+        val newest = store.history.first().maxOfOrNull { it.timeSeconds } ?: 0L
+        store.markSeen(maxOf(System.currentTimeMillis() / 1000, newest))
+    }
 
     suspend fun record(message: NtfyMessage) {
         store.updateHistory { h, pins -> mergeNtfyHistory(h, listOf(message), System.currentTimeMillis() / 1000, pins) }

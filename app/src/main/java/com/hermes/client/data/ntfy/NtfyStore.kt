@@ -35,6 +35,14 @@ class NtfyStore(private val context: Context, private val json: Json) {
     private val kHistory = stringPreferencesKey("history")
     private val kPinned = stringPreferencesKey("history_pinned")
     private val kDismissed = stringPreferencesKey("history_dismissed")
+    private val kSeen = androidx.datastore.preferences.core.longPreferencesKey("history_seen")
+
+    /** Epoch seconds when the history was last looked at; messages newer than this are unread. */
+    val lastSeen: Flow<Long> = context.ntfyDataStore.data.map { it[kSeen] ?: 0L }
+
+    suspend fun markSeen(seconds: Long) {
+        context.ntfyDataStore.edit { p -> if (seconds > (p[kSeen] ?: 0L)) p[kSeen] = seconds }
+    }
     private val historySer = kotlinx.serialization.builtins.ListSerializer(NtfyMessage.serializer())
     private val idsSer = kotlinx.serialization.builtins.ListSerializer(String.serializer())
 

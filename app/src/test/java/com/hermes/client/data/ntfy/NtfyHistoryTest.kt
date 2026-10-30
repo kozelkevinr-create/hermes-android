@@ -28,4 +28,11 @@ class NtfyHistoryTest {
         val merged = mergeNtfyHistory((1L..5L).map { msg("m$it", it) }, emptyList(), nowSeconds = 99, pinned = setOf("m1"), limit = 2)
         assertEquals(listOf("m5", "m4", "m1"), merged.map { it.id })
     }
+
+    @Test fun unread_counts_only_newer_unpinned_messages() {
+        val all = listOf(msg("a", 10), msg("b", 20), msg("c", 30))
+        assertEquals(2, unreadNtfyCount(all, emptySet(), lastSeenSeconds = 10))
+        assertEquals(1, unreadNtfyCount(all, setOf("c"), lastSeenSeconds = 10))
+        assertEquals(0, unreadNtfyCount(all, emptySet(), lastSeenSeconds = 30))
+    }
 }
