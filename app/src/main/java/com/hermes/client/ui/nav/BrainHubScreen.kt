@@ -20,6 +20,7 @@ import androidx.compose.material.icons.rounded.Hub
 import androidx.compose.material.icons.rounded.Lan
 import androidx.compose.material.icons.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
@@ -84,6 +85,9 @@ fun BrainHubScreen(
                 Icons.Rounded.QuestionAnswer, "Clarifications",
                 if (questions.isEmpty()) "Nothing waiting" else "${questions.size} question(s) from the agent",
             ) { onNavigate(NavRoutes.CLARIFICATIONS) }
+            HubRow(Icons.Rounded.Notifications, "Notification history", "Past ntfy messages, pin the ones to keep") {
+                onNavigate(NavRoutes.NTFY_HISTORY)
+            }
 
             HorizontalDivider()
             SectionLabel("KNOWLEDGE")

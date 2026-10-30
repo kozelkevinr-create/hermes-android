@@ -7,20 +7,23 @@ import javax.inject.Singleton
 const val NTFY_HISTORY_LIMIT = 300
 
 /**
- * Folds [incoming] into [existing]: deduped by message id (the incoming copy wins), newest first,
- * capped at [limit]. A message with no timestamp is dated [nowSeconds] so it still sorts sensibly.
+ * Folds [incoming] into [existing]: deduped by message id (the incoming copy wins), newest first. Only
+ * unpinned messages count toward [limit]; pinned ones are always kept. A message with no timestamp is
+ * dated [nowSeconds] so it still sorts sensibly.
  */
 fun mergeNtfyHistory(
     existing: List<NtfyMessage>,
     incoming: List<NtfyMessage>,
     nowSeconds: Long,
+    pinned: Set<String> = emptySet(),
     limit: Int = NTFY_HISTORY_LIMIT,
 ): List<NtfyMessage> {
     val dated = incoming.map { if (it.timeSeconds > 0) it else it.copy(timeSeconds = nowSeconds) }
     val ids = dated.map { it.id }.toSet()
-    return (dated + existing.filterNot { it.id in ids })
+    val (keep, rest) = (dated + existing.filterNot { it.id in ids })
         .sortedByDescending { it.timeSeconds }
-        .take(limit)
+        .partition { it.id in pinned }
+    return (keep + rest.take(limit)).sortedByDescending { it.timeSeconds }
 }
 
 /**
@@ -33,18 +36,25 @@ class NtfyHistory @Inject constructor(
     private val listener: NtfyListener,
 ) {
     val messages = store.history
+    val pinned = store.pinned
 
     suspend fun record(message: NtfyMessage) {
-        store.updateHistory { mergeNtfyHistory(it, listOf(message), System.currentTimeMillis() / 1000) }
+        store.updateHistory { h, pins -> mergeNtfyHistory(h, listOf(message), System.currentTimeMillis() / 1000, pins) }
     }
 
     /** Pulls the server's cached messages into the history. Returns how many were read, or the error. */
     suspend fun refreshFromServer(): Result<Int> =
         listener.fetchCached().onSuccess { fetched ->
             if (fetched.isNotEmpty()) {
-                store.updateHistory { mergeNtfyHistory(it, fetched, System.currentTimeMillis() / 1000) }
+                store.updateHistory { h, pins -> mergeNtfyHistory(h, fetched, System.currentTimeMillis() / 1000, pins) }
             }
         }.map { it.size }
 
-    suspend fun clear() = store.updateHistory { emptyList() }
+    suspend fun setPinned(id: String, pinned: Boolean) = store.setPinned(id, pinned)
+
+    /** Removes one message for good; a later server refresh does not bring it back. */
+    suspend fun dismiss(id: String) = store.dismiss(listOf(id))
+
+    /** Removes every unpinned message for good. */
+    suspend fun clear(ids: Collection<String>) = store.dismiss(ids)
 }
