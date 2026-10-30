@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -148,6 +149,41 @@ class NtfyListener @Inject constructor(
             attempt++
             delay(delaySec * 1000)
         }
+    }
+
+    /**
+     * What each active topic's server still caches (`poll=1&since=all`), for the history screen: it
+     * covers messages that arrived while the app was not listening. Per-topic failures are skipped;
+     * [Result.failure] only when nothing could be read at all.
+     */
+    suspend fun fetchCached(): Result<List<NtfyMessage>> = withContext(Dispatchers.IO) {
+        val cfg = store.config.first()
+        if (!cfg.isUsable) return@withContext Result.success(emptyList())
+        val base = normalizeServerUrl(cfg.serverUrl)
+        val password = store.password()
+        val out = mutableListOf<NtfyMessage>()
+        var failure: Exception? = null
+        var ok = 0
+        for (t in cfg.activeTopics) {
+            try {
+                val req = Request.Builder().url("$base/${t.topic}/json?poll=1&since=all").apply {
+                    if (cfg.username.isNotBlank()) header("Authorization", Credentials.basic(cfg.username, password))
+                }.build()
+                client.newCall(req).execute().use { resp ->
+                    if (!resp.isSuccessful) throw java.io.IOException("server answered ${resp.code}")
+                    val source = resp.body.source()
+                    while (true) {
+                        val line = source.readUtf8Line() ?: break
+                        (parseNtfyLine(json, line) as? NtfyEvent.Message)?.let { out += it.message }
+                    }
+                }
+                ok++
+            } catch (e: Exception) {
+                failure = e
+                DebugLog.log("ntfy", "cache fetch ${t.topic} failed: ${e.javaClass.simpleName}")
+            }
+        }
+        if (ok == 0 && failure != null) Result.failure(failure) else Result.success(out)
     }
 
     /** One-off reachability check for the settings screen: null when the server answers, else why not. */
