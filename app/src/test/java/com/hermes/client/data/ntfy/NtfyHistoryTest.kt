@@ -23,4 +23,9 @@ class NtfyHistoryTest {
         val merged = mergeNtfyHistory((1L..5L).map { msg("m$it", it) }, emptyList(), nowSeconds = 99, limit = 3)
         assertEquals(listOf("m5", "m4", "m3"), merged.map { it.id })
     }
+
+    @Test fun pinned_messages_survive_the_cap() {
+        val merged = mergeNtfyHistory((1L..5L).map { msg("m$it", it) }, emptyList(), nowSeconds = 99, pinned = setOf("m1"), limit = 2)
+        assertEquals(listOf("m5", "m4", "m1"), merged.map { it.id })
+    }
 }

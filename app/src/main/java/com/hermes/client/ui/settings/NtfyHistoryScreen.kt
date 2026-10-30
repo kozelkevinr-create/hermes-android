@@ -2,6 +2,17 @@ package com.hermes.client.ui.settings
 
 import android.text.format.DateUtils
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material.icons.outlined.PushPin
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -48,6 +59,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -58,8 +70,13 @@ class NtfyHistoryViewModel @Inject constructor(
     private val history: NtfyHistory,
     store: NtfyStore,
 ) : ViewModel() {
-    val messages: StateFlow<List<NtfyMessage>> =
-        history.messages.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    /** A message and whether it is pinned. Pinned ones come first, each group newest first. */
+    data class Entry(val message: NtfyMessage, val pinned: Boolean)
+
+    val entries: StateFlow<List<Entry>> =
+        combine(history.messages, history.pinned) { all, pins ->
+            all.map { Entry(it, it.id in pins) }.sortedByDescending { it.pinned } // stable: stays newest first
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Topic id → (display name, kind), to label each entry with where it came from. */
     val topics: StateFlow<Map<String, Pair<String, NtfyKind>>> =
@@ -85,13 +102,23 @@ class NtfyHistoryViewModel @Inject constructor(
         }
     }
 
-    fun clear() { viewModelScope.launch { history.clear() } }
+    fun setPinned(m: NtfyMessage, pinned: Boolean) { viewModelScope.launch { history.setPinned(m.id, pinned) } }
+
+    fun dismiss(m: NtfyMessage) { viewModelScope.launch { history.dismiss(m.id) } }
+
+    /** Clears everything that is not pinned. */
+    fun clear() {
+        val ids = entries.value.filterNot { it.pinned }.map { it.message.id }
+        viewModelScope.launch { history.clear(ids) }
+    }
 }
 
 /** Every ntfy message the app has received, newest first. Tap one to read all of it. */
 @Composable
 fun NtfyHistoryScreen(onBack: () -> Unit, vm: NtfyHistoryViewModel = hiltViewModel()) {
-    val messages by vm.messages.collectAsStateWithLifecycle()
+    val entries by vm.entries.collectAsStateWithLifecycle()
+    val messages = entries.map { it.message }
+    val clearable = entries.count { !it.pinned }
     val topics by vm.topics.collectAsStateWithLifecycle()
     val refreshing by vm.refreshing.collectAsStateWithLifecycle()
     val notice by vm.notice.collectAsStateWithLifecycle()
@@ -113,7 +140,7 @@ fun NtfyHistoryScreen(onBack: () -> Unit, vm: NtfyHistoryViewModel = hiltViewMod
                     IconButton(onClick = { vm.refresh() }, enabled = !refreshing) {
                         Icon(Icons.Rounded.Refresh, contentDescription = "Check the server for older messages")
                     }
-                    if (messages.isNotEmpty()) {
+                    if (clearable > 0) {
                         IconButton(onClick = { confirmClear = true }) {
                             Icon(Icons.Rounded.DeleteSweep, contentDescription = "Clear history")
                         }
@@ -144,7 +171,11 @@ fun NtfyHistoryScreen(onBack: () -> Unit, vm: NtfyHistoryViewModel = hiltViewMod
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                items(messages, key = { it.id }) { m -> NtfyHistoryCard(m, topics[m.topic]) }
+                items(entries, key = { it.message.id }) { e ->
+                    SwipeToRemove(enabled = !e.pinned, onRemove = { vm.dismiss(e.message) }) {
+                        NtfyHistoryCard(e.message, e.pinned, topics[e.message.topic], onTogglePin = { vm.setPinned(e.message, !e.pinned) })
+                    }
+                }
             }
         }
     }
@@ -152,8 +183,8 @@ fun NtfyHistoryScreen(onBack: () -> Unit, vm: NtfyHistoryViewModel = hiltViewMod
     if (confirmClear) {
         AlertDialog(
             onDismissRequest = { confirmClear = false },
-            title = { Text("Clear ${messages.size} messages?") },
-            text = { Text("This only clears the list in the app. Older messages the server still keeps can be pulled back with refresh.") },
+            title = { Text("Clear $clearable messages?") },
+            text = { Text("Pinned messages stay. Cleared ones won't come back, even if the server still has them.") },
             confirmButton = { TextButton(onClick = { confirmClear = false; vm.clear() }) { Text("Clear") } },
             dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } },
         )
@@ -161,21 +192,31 @@ fun NtfyHistoryScreen(onBack: () -> Unit, vm: NtfyHistoryViewModel = hiltViewMod
 }
 
 @Composable
-private fun NtfyHistoryCard(m: NtfyMessage, topic: Pair<String, NtfyKind>?) {
+private fun NtfyHistoryCard(m: NtfyMessage, pinned: Boolean, topic: Pair<String, NtfyKind>?, onTogglePin: () -> Unit) {
     var expanded by rememberSaveable(m.id) { mutableStateOf(false) }
     val whenText = DateUtils.getRelativeTimeSpanString(
         m.timeSeconds * 1000, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS,
     ).toString()
     val source = (topic?.first ?: m.topic) + if (topic?.second == NtfyKind.APPROVALS) " · approval" else ""
     Card(Modifier.fillMaxWidth().clickable { expanded = !expanded }) {
-        Column(Modifier.padding(16.dp)) {
-            Text(
-                "$source · $whenText" + if (m.priority >= 4) " · urgent" else "",
-                style = MaterialTheme.typography.labelMedium,
-                color = if (m.priority >= 4) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-            )
+        Column(Modifier.padding(start = 16.dp, top = 8.dp, end = 4.dp, bottom = 16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "$source · $whenText" + if (m.priority >= 4) " · urgent" else "",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (m.priority >= 4) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = onTogglePin) {
+                    Icon(
+                        if (pinned) Icons.Rounded.PushPin else Icons.Outlined.PushPin,
+                        contentDescription = if (pinned) "Unpin" else "Pin",
+                        tint = if (pinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             if (m.title.isNotBlank()) {
-                Text(m.title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 4.dp))
+                Text(m.title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 4.dp, end = 12.dp))
             }
             if (m.message.isNotBlank()) {
                 Text(
@@ -183,9 +224,32 @@ private fun NtfyHistoryCard(m: NtfyMessage, topic: Pair<String, NtfyKind>?) {
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = if (expanded) Int.MAX_VALUE else 4,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 4.dp),
+                    modifier = Modifier.padding(top = 4.dp, end = 12.dp),
                 )
             }
         }
     }
+}
+
+/** Swipe either way to remove [content]; off for pinned entries, which must be unpinned first. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeToRemove(enabled: Boolean, onRemove: () -> Unit, content: @Composable () -> Unit) {
+    val state = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value -> (value != SwipeToDismissBoxValue.Settled).also { if (it) onRemove() } },
+    )
+    SwipeToDismissBox(
+        state = state,
+        enableDismissFromStartToEnd = enabled,
+        enableDismissFromEndToStart = enabled,
+        backgroundContent = {
+            Box(
+                Modifier.fillMaxSize().background(MaterialTheme.colorScheme.errorContainer, MaterialTheme.shapes.medium).padding(horizontal = 20.dp),
+                contentAlignment = if (state.dismissDirection == SwipeToDismissBoxValue.StartToEnd) Alignment.CenterStart else Alignment.CenterEnd,
+            ) {
+                Icon(Icons.Rounded.Delete, contentDescription = "Remove", tint = MaterialTheme.colorScheme.onErrorContainer)
+            }
+        },
+        content = { content() },
+    )
 }

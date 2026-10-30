@@ -40,7 +40,6 @@ fun SettingsScreen(
             HorizontalDivider()
             Entry("Notifications", "Approvals, cron, and messaging alerts") { onNavigate("settings_notifications") }
             Entry("Notification sources", "ntfy topics: approvals and other alerts") { onNavigate("settings_ntfy") }
-            Entry("Notification history", "Read past ntfy messages") { onNavigate("ntfy_history") }
             HorizontalDivider()
             Entry("Saved prompts", "Reusable prompts for the composer") { onNavigate("settings_prompts") }
             HorizontalDivider()
