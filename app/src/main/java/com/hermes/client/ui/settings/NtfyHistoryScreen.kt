@@ -83,6 +83,12 @@ class NtfyHistoryViewModel @Inject constructor(
         store.config.map { c -> c.topics.associate { it.topic to (it.name to it.kind) } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
+    /** Messages that arrived since the history was last opened, for the Brain hub row. */
+    val unread: StateFlow<Int> =
+        history.unread.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    fun markSeen() { viewModelScope.launch { history.markSeen() } }
+
     private val _refreshing = MutableStateFlow(false)
     val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
 
@@ -127,6 +133,8 @@ fun NtfyHistoryScreen(onBack: () -> Unit, vm: NtfyHistoryViewModel = hiltViewMod
 
     // Pick up anything the server kept from while the app was not listening.
     LaunchedEffect(Unit) { vm.refresh() }
+    // Whatever is on screen counts as read: on opening, and again as new messages arrive while it is open.
+    LaunchedEffect(messages.firstOrNull()?.id) { vm.markSeen() }
     LaunchedEffect(notice) {
         notice?.let { snackbar.showSnackbar(it); vm.noticeShown() }
     }

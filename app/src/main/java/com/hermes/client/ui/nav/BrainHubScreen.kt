@@ -54,9 +54,11 @@ fun BrainHubScreen(
     onOpenPalette: () -> Unit = {},
     approvals: com.hermes.client.ui.approvals.ApprovalsViewModel = androidx.hilt.navigation.compose.hiltViewModel(),
     clarifications: com.hermes.client.ui.approvals.ClarificationsViewModel = androidx.hilt.navigation.compose.hiltViewModel(),
+    ntfyHistory: com.hermes.client.ui.settings.NtfyHistoryViewModel = androidx.hilt.navigation.compose.hiltViewModel(),
 ) {
     val waiting by approvals.pending.collectAsStateWithLifecycle()
     val questions by clarifications.pending.collectAsStateWithLifecycle()
+    val unreadNotifications by ntfyHistory.unread.collectAsStateWithLifecycle()
     Scaffold(
         topBar = {
             HermesTopBar(
@@ -85,7 +87,10 @@ fun BrainHubScreen(
                 Icons.Rounded.QuestionAnswer, "Clarifications",
                 if (questions.isEmpty()) "Nothing waiting" else "${questions.size} question(s) from the agent",
             ) { onNavigate(NavRoutes.CLARIFICATIONS) }
-            HubRow(Icons.Rounded.Notifications, "Notification history", "Past ntfy messages, pin the ones to keep") {
+            HubRow(
+                Icons.Rounded.Notifications, "Notification history",
+                if (unreadNotifications == 0) "Nothing waiting" else "$unreadNotifications waiting",
+            ) {
                 onNavigate(NavRoutes.NTFY_HISTORY)
             }
 
