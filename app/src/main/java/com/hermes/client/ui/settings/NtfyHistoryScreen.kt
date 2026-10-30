@@ -1,6 +1,13 @@
 package com.hermes.client.ui.settings
 
 import android.text.format.DateUtils
+import android.widget.Toast
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -129,6 +136,8 @@ fun NtfyHistoryScreen(onBack: () -> Unit, vm: NtfyHistoryViewModel = hiltViewMod
     val refreshing by vm.refreshing.collectAsStateWithLifecycle()
     val notice by vm.notice.collectAsStateWithLifecycle()
     var confirmClear by remember { mutableStateOf(false) }
+    var openId by rememberSaveable { mutableStateOf<String?>(null) }
+    val open = entries.firstOrNull { it.message.id == openId }
     val snackbar = remember { SnackbarHostState() }
 
     // Pick up anything the server kept from while the app was not listening.
@@ -181,11 +190,19 @@ fun NtfyHistoryScreen(onBack: () -> Unit, vm: NtfyHistoryViewModel = hiltViewMod
             ) {
                 items(entries, key = { it.message.id }) { e ->
                     SwipeToRemove(enabled = !e.pinned, onRemove = { vm.dismiss(e.message) }) {
-                        NtfyHistoryCard(e.message, e.pinned, topics[e.message.topic], onTogglePin = { vm.setPinned(e.message, !e.pinned) })
+                        NtfyHistoryCard(
+                            e.message, e.pinned, topics[e.message.topic],
+                            onOpen = { openId = e.message.id },
+                            onTogglePin = { vm.setPinned(e.message, !e.pinned) },
+                        )
                     }
                 }
             }
         }
+    }
+
+    open?.let { e ->
+        NtfyMessageDialog(e.message, topics[e.message.topic], onDismiss = { openId = null })
     }
 
     if (confirmClear) {
@@ -200,13 +217,12 @@ fun NtfyHistoryScreen(onBack: () -> Unit, vm: NtfyHistoryViewModel = hiltViewMod
 }
 
 @Composable
-private fun NtfyHistoryCard(m: NtfyMessage, pinned: Boolean, topic: Pair<String, NtfyKind>?, onTogglePin: () -> Unit) {
-    var expanded by rememberSaveable(m.id) { mutableStateOf(false) }
+private fun NtfyHistoryCard(m: NtfyMessage, pinned: Boolean, topic: Pair<String, NtfyKind>?, onOpen: () -> Unit, onTogglePin: () -> Unit) {
     val whenText = DateUtils.getRelativeTimeSpanString(
         m.timeSeconds * 1000, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS,
     ).toString()
     val source = (topic?.first ?: m.topic) + if (topic?.second == NtfyKind.APPROVALS) " · approval" else ""
-    Card(Modifier.fillMaxWidth().clickable { expanded = !expanded }) {
+    Card(Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
         Column(Modifier.padding(start = 16.dp, top = 8.dp, end = 4.dp, bottom = 16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -230,7 +246,7 @@ private fun NtfyHistoryCard(m: NtfyMessage, pinned: Boolean, topic: Pair<String,
                 Text(
                     m.message,
                     style = MaterialTheme.typography.bodyMedium,
-                    maxLines = if (expanded) Int.MAX_VALUE else 4,
+                    maxLines = 4,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 4.dp, end = 12.dp),
                 )
@@ -259,5 +275,39 @@ private fun SwipeToRemove(enabled: Boolean, onRemove: () -> Unit, content: @Comp
             }
         },
         content = { content() },
+    )
+}
+
+/** The whole message in a popout, selectable, with a button to copy it. */
+@Composable
+private fun NtfyMessageDialog(m: NtfyMessage, topic: Pair<String, NtfyKind>?, onDismiss: () -> Unit) {
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
+    val whenText = DateUtils.getRelativeTimeSpanString(
+        m.timeSeconds * 1000, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS,
+    ).toString()
+    val copyText = listOf(m.title, m.message).filter { it.isNotBlank() }.joinToString("\n\n")
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(m.title.ifBlank { topic?.first ?: m.topic }) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    (topic?.first ?: m.topic) + " · " + whenText,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                SelectionContainer {
+                    Text(m.message, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 12.dp))
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                clipboard.setText(AnnotatedString(copyText))
+                Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
+            }) { Text("Copy") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
     )
 }
