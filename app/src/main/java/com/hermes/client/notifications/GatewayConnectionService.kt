@@ -27,6 +27,7 @@ class GatewayConnectionService : Service() {
     @Inject lateinit var matrix: com.hermes.client.data.matrix.MatrixClientManager
     @Inject lateinit var ntfy: com.hermes.client.data.ntfy.NtfyListener
     @Inject lateinit var ntfyStore: com.hermes.client.data.ntfy.NtfyStore
+    @Inject lateinit var ntfyHistory: com.hermes.client.data.ntfy.NtfyHistory
     @Inject lateinit var approvalInbox: com.hermes.client.data.repository.ApprovalInbox
 
     // Held separately (not just scope.coroutineContext[Job]) so onDestroy can register an
@@ -129,11 +130,14 @@ class GatewayConnectionService : Service() {
                     val kindOf = { topic: String -> topics.firstOrNull { it.topic == topic }?.kind }
                     when (val d = com.hermes.client.data.ntfy.classifyNtfy(ev, kindOf)) {
                         is com.hermes.client.data.ntfy.NtfyDelivery.Approval -> {
+                            ntfyHistory.record(d.message)
                             approvalInbox.addNtfy(d.approval)
                             ntfyNotificationSpec(d.message, d.approval, latestPrefs)?.let { notifier.post(it) }
                         }
-                        is com.hermes.client.data.ntfy.NtfyDelivery.Alert ->
+                        is com.hermes.client.data.ntfy.NtfyDelivery.Alert -> {
+                            ntfyHistory.record(d.message)
                             ntfyNotificationSpec(d.message, null, latestPrefs)?.let { notifier.post(it) }
+                        }
                         is com.hermes.client.data.ntfy.NtfyDelivery.Withdraw -> {
                             approvalInbox.removeNtfy(d.messageId)
                             notifier.cancel(ntfyNotificationId(d.messageId))

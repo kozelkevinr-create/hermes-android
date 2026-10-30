@@ -33,9 +33,11 @@ data class NtfyConfig(
     val isUsable: Boolean get() = enabled && serverUrl.isNotBlank() && activeTopics.isNotEmpty()
 }
 
+@Serializable
 data class NtfyAction(val label: String, val url: String)
 
 /** One ntfy `message` event. [priority] is ntfy's 1..5 (3 = default). */
+@Serializable
 data class NtfyMessage(
     val id: String,
     val topic: String,
