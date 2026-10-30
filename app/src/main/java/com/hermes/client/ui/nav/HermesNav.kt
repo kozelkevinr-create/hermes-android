@@ -342,6 +342,7 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
             }
             composable(NavRoutes.SETTINGS_APPEARANCE) { AppearanceScreen(onBack = { nav.popBackStack() }) }
             composable(NavRoutes.SETTINGS_NTFY) { com.hermes.client.ui.settings.NtfySettingsScreen(onBack = back) }
+            composable(NavRoutes.NTFY_HISTORY) { com.hermes.client.ui.settings.NtfyHistoryScreen(onBack = back) }
             composable(NavRoutes.SETTINGS_NOTIFICATIONS) {
                 com.hermes.client.ui.settings.NotificationsScreen(onBack = { nav.popBackStack() })
             }

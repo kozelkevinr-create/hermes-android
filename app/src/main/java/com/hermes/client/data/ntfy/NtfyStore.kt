@@ -20,6 +20,20 @@ private val Context.ntfyDataStore by preferencesDataStore(name = "ntfy")
  */
 class NtfyStore(private val context: Context, private val json: Json) {
     private val kConfig = stringPreferencesKey("config")
+    private val kHistory = stringPreferencesKey("history")
+    private val historySer = kotlinx.serialization.builtins.ListSerializer(NtfyMessage.serializer())
+
+    /** Messages received so far, newest first (see [mergeNtfyHistory]). */
+    val history: Flow<List<NtfyMessage>> = context.ntfyDataStore.data.map { p ->
+        p[kHistory]?.let { runCatching { json.decodeFromString(historySer, it) }.getOrNull() } ?: emptyList()
+    }
+
+    suspend fun updateHistory(transform: (List<NtfyMessage>) -> List<NtfyMessage>) {
+        context.ntfyDataStore.edit { p ->
+            val current = p[kHistory]?.let { runCatching { json.decodeFromString(historySer, it) }.getOrNull() } ?: emptyList()
+            p[kHistory] = json.encodeToString(historySer, transform(current))
+        }
+    }
 
     val config: Flow<NtfyConfig> = context.ntfyDataStore.data.map { p ->
         p[kConfig]?.let { runCatching { json.decodeFromString<NtfyConfig>(it) }.getOrNull() } ?: NtfyConfig()
