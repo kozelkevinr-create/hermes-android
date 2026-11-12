@@ -52,6 +52,7 @@ object NavRoutes {
     const val SETTINGS_MATRIX = "settings_matrix"
     const val SETTINGS_DIAGNOSTICS = "settings_diagnostics"
     const val SETTINGS_ABOUT = "settings_about"
+    const val SETTINGS_ACHIEVEMENTS = "settings_achievements"
     const val SESSION_ADMIN = "session_admin"
     const val AGENTS_TOOLS = "agents_tools"
     const val APPROVALS = "approvals"
@@ -102,6 +103,7 @@ val NAV_ROUTES: List<String> = listOf(
     NavRoutes.SETTINGS_MATRIX,
     NavRoutes.SETTINGS_DIAGNOSTICS,
     NavRoutes.SETTINGS_ABOUT,
+    NavRoutes.SETTINGS_ACHIEVEMENTS,
     NavRoutes.SESSION_ADMIN,
     NavRoutes.AGENTS_TOOLS,
     NavRoutes.APPROVALS,
