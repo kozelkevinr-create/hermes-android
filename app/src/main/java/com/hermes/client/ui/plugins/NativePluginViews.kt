@@ -28,6 +28,7 @@ object NativePluginViews {
     /** Add `YourPluginView` here. Plugins without an entry fall back to the WebView. */
     val all: List<NativePluginView> = listOf(
         CalendarPluginView(),
+        com.hermes.client.ui.plugins.workbook.WorkbookPluginView(),
     )
 
     fun forPlugin(name: String): NativePluginView? = all.firstOrNull { it.pluginName == name }
