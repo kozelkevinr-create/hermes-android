@@ -1,6 +1,7 @@
 package com.hermes.client.ui.plugins
 
 import androidx.compose.runtime.Composable
+import com.hermes.client.ui.plugins.calendar.CalendarPluginView
 
 /**
  * A native (Compose) screen for a Hermes dashboard plugin.
@@ -26,6 +27,7 @@ interface NativePluginView {
 object NativePluginViews {
     /** Add `YourPluginView` here. Plugins without an entry fall back to the WebView. */
     val all: List<NativePluginView> = listOf(
+        CalendarPluginView(),
     )
 
     fun forPlugin(name: String): NativePluginView? = all.firstOrNull { it.pluginName == name }
