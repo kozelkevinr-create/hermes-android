@@ -43,6 +43,9 @@ class InMemoryCookieJar : CookieJar {
     }
 
     fun clear() = byHost.clear()
+
+    /** Cookies that would be sent for [url]; used to seed a WebView with the app's session. */
+    fun cookiesFor(url: HttpUrl): List<Cookie> = loadForRequest(url)
 }
 
 /**

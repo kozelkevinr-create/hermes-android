@@ -158,6 +158,9 @@ fun BrainHubScreen(
             HubRow(Icons.Rounded.BarChart, "Usage", "Token spend by day and model") {
                 onNavigate("usage")
             }
+            HubRow(Icons.Rounded.Hub, "Plugins", "Dashboard plugin pages (Calendar, Kanban, …)") {
+                onNavigate("plugins")
+            }
 
             HorizontalDivider()
             SectionLabel("APP")

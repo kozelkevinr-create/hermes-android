@@ -334,6 +334,29 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
             composable(NavRoutes.APPROVALS) { com.hermes.client.ui.approvals.ApprovalsScreen(onBack = back) }
             composable(NavRoutes.CLARIFICATIONS) { com.hermes.client.ui.approvals.ClarificationsScreen(onBack = back) }
             composable(NavRoutes.USAGE) { UsageScreen(onMenu = back) }
+            composable(NavRoutes.PLUGINS) {
+                com.hermes.client.ui.plugins.PluginsScreen(
+                    onBack = back,
+                    onOpen = { path, title ->
+                        nav.navigate(
+                            "plugin_view?path=${android.net.Uri.encode(path)}&title=${android.net.Uri.encode(title)}",
+                        )
+                    },
+                )
+            }
+            composable(
+                NavRoutes.PLUGIN_VIEW,
+                arguments = listOf(
+                    androidx.navigation.navArgument("path") { defaultValue = "/" },
+                    androidx.navigation.navArgument("title") { defaultValue = "Plugin" },
+                ),
+            ) { entry ->
+                com.hermes.client.ui.plugins.PluginWebScreen(
+                    path = entry.arguments?.getString("path") ?: "/",
+                    title = entry.arguments?.getString("title") ?: "Plugin",
+                    onBack = back,
+                )
+            }
             composable(NavRoutes.SETTINGS) {
                 SettingsScreen(
                     onMenu = back,
