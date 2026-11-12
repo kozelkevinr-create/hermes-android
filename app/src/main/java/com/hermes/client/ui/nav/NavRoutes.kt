@@ -37,6 +37,7 @@ object NavRoutes {
     const val MESSAGING_SETUP = "messaging_setup/{id}"
     const val USAGE = "usage"
     const val PLUGINS = "plugins"
+    const val PLUGIN_NATIVE = "plugin_native/{plugin}"
     const val PLUGIN_VIEW = "plugin_view?path={path}&title={title}"
     const val SETTINGS = "settings"
     const val SETTINGS_APPEARANCE = "settings_appearance"

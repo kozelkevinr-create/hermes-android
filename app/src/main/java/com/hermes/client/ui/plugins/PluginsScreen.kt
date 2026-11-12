@@ -93,6 +93,7 @@ class PluginsViewModel @Inject constructor(
 fun PluginsScreen(
     onBack: () -> Unit,
     onOpen: (path: String, title: String) -> Unit,
+    onOpenNative: (plugin: String) -> Unit = {},
     vm: PluginsViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
@@ -119,7 +120,10 @@ fun PluginsScreen(
                         ListItem(
                             headlineContent = { Text(p.label) },
                             supportingContent = { Text(p.path) },
-                            modifier = Modifier.clickable { onOpen(p.path, p.label) },
+                            modifier = Modifier.clickable {
+                                if (NativePluginViews.forPlugin(p.name) != null) onOpenNative(p.name)
+                                else onOpen(p.path, p.label)
+                            },
                         )
                         HorizontalDivider()
                     }
