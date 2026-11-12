@@ -45,6 +45,8 @@ fun SettingsScreen(
             HorizontalDivider()
             Entry("API keys & env", "Provider keys and tool env vars") { onNavigate("settings_env") }
             HorizontalDivider()
+            Entry("Achievements", "Badges and tiers earned from your Hermes sessions") { onNavigate("settings_achievements") }
+            HorizontalDivider()
             Entry("Diagnostics", "Capture a shareable debug log to troubleshoot errors") { onNavigate("settings_diagnostics") }
             HorizontalDivider()
             Entry("About", "App and gateway version") { onNavigate("settings_about") }

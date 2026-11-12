@@ -411,6 +411,9 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
             composable(NavRoutes.SETTINGS_DIAGNOSTICS) {
                 com.hermes.client.ui.settings.DiagnosticsScreen(onBack = { nav.popBackStack() })
             }
+            composable(NavRoutes.SETTINGS_ACHIEVEMENTS) {
+                com.hermes.client.ui.plugins.achievements.AchievementsScreen(onBack = { nav.popBackStack() })
+            }
             composable(NavRoutes.SETTINGS_ABOUT) { AboutScreen(onBack = { nav.popBackStack() }) }
             composable(NavRoutes.SESSION_ADMIN) {
                 SessionAdminScreen(
