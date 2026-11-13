@@ -4,6 +4,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -13,11 +14,13 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -38,7 +41,18 @@ import kotlinx.serialization.json.jsonObject
 import javax.inject.Inject
 
 /** A dashboard plugin tab advertised by `GET /api/dashboard/plugins`. */
-data class DashboardPlugin(val name: String, val label: String, val path: String)
+data class DashboardPlugin(
+    val name: String,
+    val label: String,
+    val path: String,
+    val description: String = "",
+)
+
+/** Used when `/api/dashboard/plugins` doesn't include a description for a known plugin. */
+private val FALLBACK_DESCRIPTIONS = mapOf(
+    "kanban" to "Multi-agent collaboration board: drag cards across columns, read comment threads and see which profile is running what.",
+    "hermes-achievements" to "Steam-style achievements for vibe coding and agentic Hermes workflows.",
+)
 
 /**
  * Lenient parser: the endpoint's exact shape is not pinned down, so accept either a bare array
@@ -58,7 +72,9 @@ internal fun parseDashboardPlugins(body: String, json: Json = Json): List<Dashbo
         val tab = o["tab"] as? JsonObject
         val path = str(tab?.get("path")) ?: str(o["path"]) ?: "/$name"
         val label = str(tab?.get("label")) ?: str(o["label"]) ?: str(o["title"]) ?: name
-        DashboardPlugin(name, label, if (path.startsWith("/")) path else "/$path")
+        val description = str(o["description"]) ?: str(tab?.get("description"))
+            ?: FALLBACK_DESCRIPTIONS[name].orEmpty()
+        DashboardPlugin(name, label, if (path.startsWith("/")) path else "/$path", description)
     }
 }
 
@@ -92,7 +108,6 @@ class PluginsViewModel @Inject constructor(
 @Composable
 fun PluginsScreen(
     onBack: () -> Unit,
-    onOpen: (path: String, title: String) -> Unit,
     onOpenNative: (plugin: String) -> Unit = {},
     vm: PluginsViewModel = hiltViewModel(),
 ) {
@@ -117,13 +132,23 @@ fun PluginsScreen(
                 )
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(state.plugins, key = { it.name }) { p ->
+                        val native = NativePluginViews.forPlugin(p.name) != null
                         ListItem(
                             headlineContent = { Text(p.label) },
-                            supportingContent = { Text(p.path) },
-                            modifier = Modifier.clickable {
-                                if (NativePluginViews.forPlugin(p.name) != null) onOpenNative(p.name)
-                                else onOpen(p.path, p.label)
+                            supportingContent = {
+                                Column {
+                                    if (p.description.isNotBlank()) Text(p.description)
+                                    if (!native) {
+                                        Text(
+                                            "Not available in the app yet. Use the Hermes dashboard.",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.outline,
+                                            modifier = Modifier.padding(top = 4.dp),
+                                        )
+                                    }
+                                }
                             },
+                            modifier = if (native) Modifier.clickable { onOpenNative(p.name) } else Modifier,
                         )
                         HorizontalDivider()
                     }
