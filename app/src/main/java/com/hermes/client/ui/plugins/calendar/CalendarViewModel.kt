@@ -622,14 +622,22 @@ class CalendarViewModel @Inject constructor(
             is CalendarError.Conflict -> {
                 // Re-read precisely the row the server named, keep the user's draft open, and
                 // retry with the fresh master revision on the next save.
-                val current = refetchEvent(editor.eventId ?: error.eventId, editor.scope, editor.startDate)
+                val refetch = refetchEvent(
+                    eventId = editor.eventId ?: error.eventId,
+                    scope = editor.scope,
+                    around = editor.startDate,
+                    occurrenceStart = editor.occurrenceStart,
+                )
+                val current = refetch.event
                 _state.update { snapshot ->
                     val open = snapshot.editor ?: editor
                     snapshot.copy(
                         editor = open.copy(
                             saving = false,
                             eventRev = current?.seriesRev ?: open.eventRev,
-                            conflict = if (current != null) {
+                            conflict = if (refetch.gone) {
+                                "This event was deleted elsewhere. Close this and refresh the agenda."
+                            } else if (current != null) {
                                 "This event changed elsewhere (now \"${current.summary}\"). " +
                                     "Your changes are still here — review them and save again."
                             } else {
@@ -643,12 +651,36 @@ class CalendarViewModel @Inject constructor(
         }
     }
 
+    private class Refetch(val event: CalendarEvent?, val gone: Boolean = false)
+
+    /** Set once a server answers 404 for GET /events/{id} without the plugin's error envelope. */
+    private var eventRouteUnsupported = false
+
+    /**
+     * Re-reads exactly the conflicting event via GET /events/{id}. Falls back to the small-window
+     * listing only when the server has no such route (framework 404 without a `code`); a plugin
+     * `not_found` means the event really is gone, and other failures (401, network) don't fall back.
+     */
     private suspend fun refetchEvent(
         eventId: String?,
         scope: CalendarScope,
         around: LocalDate,
-    ): CalendarEvent? {
-        val currentProfile = profile ?: return null
+        occurrenceStart: String? = null,
+    ): Refetch {
+        val currentProfile = profile ?: return Refetch(null)
+        if (eventId != null && !eventRouteUnsupported) {
+            when (val result = api.event(currentProfile, scope, eventId, occurrenceStart)) {
+                is ApiResult.Success -> return Refetch(result.value)
+                is ApiResult.Failure -> {
+                    val error = result.error
+                    when {
+                        error is CalendarError.NotFound && !error.routeMissing -> return Refetch(null, gone = true)
+                        error is CalendarError.NotFound -> eventRouteUnsupported = true
+                        else -> return Refetch(null)
+                    }
+                }
+            }
+        }
         val zone = _state.value.timeZone
         val result = api.events(
             profile = currentProfile,
@@ -657,12 +689,14 @@ class CalendarViewModel @Inject constructor(
             end = around.plusDays(3).toLocalDateTimeString(zone),
             timezone = zone.id,
         )
-        return when (result) {
-            is ApiResult.Success -> result.value.firstOrNull {
-                eventId == null || it.id == eventId || it.seriesId == eventId
-            }
-            is ApiResult.Failure -> null
-        }
+        return Refetch(
+            when (result) {
+                is ApiResult.Success -> result.value.firstOrNull {
+                    eventId == null || it.id == eventId || it.seriesId == eventId
+                }
+                is ApiResult.Failure -> null
+            },
+        )
     }
 
     private fun EventEditorState.toDraft(): EventDraft {

@@ -129,6 +129,9 @@ class CalendarViewModelTest {
         val patchSlot = slot<EventPatch>()
         coEvery { api.updateEvent("alice", capture(patchSlot)) } returns
             ApiResult.Failure(CalendarError.Conflict(original.id, 1, "event changed"))
+        // Older server: the framework 404 (no error envelope) means the route is missing.
+        coEvery { api.event("alice", any(), any(), any()) } returns
+            ApiResult.Failure(CalendarError.NotFound("Not Found", routeMissing = true))
         coEvery { api.events("alice", any(), any(), any(), any(), any()) } returns
             ApiResult.Success(listOf(changed))
 
