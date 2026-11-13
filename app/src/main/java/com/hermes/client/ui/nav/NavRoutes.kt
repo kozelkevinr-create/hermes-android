@@ -38,7 +38,6 @@ object NavRoutes {
     const val USAGE = "usage"
     const val PLUGINS = "plugins"
     const val PLUGIN_NATIVE = "plugin_native/{plugin}"
-    const val PLUGIN_VIEW = "plugin_view?path={path}&title={title}"
     const val SETTINGS = "settings"
     const val SETTINGS_APPEARANCE = "settings_appearance"
     const val SETTINGS_NOTIFICATIONS = "settings_notifications"
@@ -89,7 +88,6 @@ val NAV_ROUTES: List<String> = listOf(
     NavRoutes.USAGE,
     NavRoutes.PLUGINS,
     NavRoutes.PLUGIN_NATIVE,
-    NavRoutes.PLUGIN_VIEW,
     NavRoutes.SETTINGS,
     NavRoutes.SETTINGS_APPEARANCE,
     NavRoutes.SETTINGS_NOTIFICATIONS,

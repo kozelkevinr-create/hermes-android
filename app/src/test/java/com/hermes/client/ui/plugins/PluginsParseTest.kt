@@ -10,9 +10,15 @@ class PluginsParseTest {
     }
     @Test fun wrappedAndFallbackPath() {
         val r = parseDashboardPlugins("""{"plugins":[{"name":"kanban"}]}""")
-        assertEquals(listOf(DashboardPlugin("kanban", "kanban", "/kanban")), r)
+        assertEquals("/kanban", r.single().path)
+        assertEquals(true, r.single().description.startsWith("Multi-agent"))
     }
     @Test fun garbageIsEmpty() {
         assertEquals(emptyList<DashboardPlugin>(), parseDashboardPlugins("""{"x":1}"""))
+    }
+
+    @Test fun descriptionFromEndpointWins() {
+        val r = parseDashboardPlugins("""[{"name":"kanban","description":"mine"}]""")
+        assertEquals("mine", r.single().description)
     }
 }
