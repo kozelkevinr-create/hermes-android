@@ -125,10 +125,14 @@ fun CalendarScreen(
         vm.consumeSnackbar()
     }
 
-    BackHandler(enabled = state.editor != null || state.deleteTarget != null) {
-        if (state.editor != null) vm.closeEditor() else vm.cancelDelete()
+    BackHandler(enabled = state.editor != null || state.deleteTarget != null || state.calendarEditor != null) {
+        when {
+            state.calendarEditor != null -> vm.closeCalendarEditor()
+            state.editor != null -> vm.closeEditor()
+            else -> vm.cancelDelete()
+        }
     }
-    BackHandler(enabled = state.editor == null && state.deleteTarget == null) { onBack() }
+    BackHandler(enabled = state.editor == null && state.deleteTarget == null && state.calendarEditor == null) { onBack() }
 
     Box(Modifier.fillMaxSize()) {
         when {
@@ -174,6 +178,14 @@ fun CalendarScreen(
                 onDelete = vm::requestDeleteFromEditor,
                 onUpdate = vm::updateEditor,
                 onScope = vm::updateEditorScope,
+            )
+        }
+        state.calendarEditor?.let { draft ->
+            NewCalendarDialog(
+                draft = draft,
+                onUpdate = vm::updateCalendarEditor,
+                onSave = vm::saveCalendar,
+                onDismiss = vm::closeCalendarEditor,
             )
         }
         state.deleteTarget?.let { event ->
@@ -261,6 +273,16 @@ private fun ScopeSelector(state: CalendarUiState, vm: CalendarViewModel) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp),
             )
+        } else if (state.scope == CalendarScope.PROFILE) {
+            Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "No calendars yet",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                Button(onClick = vm::openNewCalendar) { Text("Create calendar") }
+            }
         } else {
             Text(
                 "No calendars in this store",
@@ -269,8 +291,77 @@ private fun ScopeSelector(state: CalendarUiState, vm: CalendarViewModel) {
                 modifier = Modifier.padding(top = 4.dp),
             )
         }
+        if (state.scope == CalendarScope.PROFILE && calendars.isNotEmpty()) {
+            TextButton(onClick = vm::openNewCalendar) { Text("New calendar") }
+        }
     }
 }
+
+@Composable
+private fun NewCalendarDialog(
+    draft: CalendarEditorState,
+    onUpdate: ((CalendarEditorState) -> CalendarEditorState) -> Unit,
+    onSave: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = { if (!draft.saving) onDismiss() },
+        title = { Text("New calendar") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                OutlinedTextField(
+                    value = draft.name,
+                    onValueChange = { v -> onUpdate { it.copy(name = v, nameError = null) } },
+                    label = { Text("Name") },
+                    singleLine = true,
+                    isError = draft.nameError != null,
+                    supportingText = draft.nameError?.let { e -> { Text(e) } },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = draft.description,
+                    onValueChange = { v -> onUpdate { it.copy(description = v, error = null) } },
+                    label = { Text("Description (optional)") },
+                    minLines = 2,
+                    maxLines = 4,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                )
+                OutlinedTextField(
+                    value = draft.timeZoneId,
+                    onValueChange = { v -> onUpdate { it.copy(timeZoneId = v, zoneError = null) } },
+                    label = { Text("Default time zone") },
+                    singleLine = true,
+                    isError = draft.zoneError != null,
+                    supportingText = draft.zoneError?.let { e -> { Text(e) } },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                )
+                Text(
+                    "Created in this profile's own store.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                draft.error?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onSave, enabled = !draft.saving) {
+                Text(if (draft.saving) "Creating…" else "Create")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !draft.saving) { Text("Cancel") }
+        },
+    )
+}
+
 
 // --- Month ------------------------------------------------------------------------------------
 
@@ -811,6 +902,15 @@ private fun EventEditorSheet(
                         label = { Text(CalendarScope.GLOBAL.label) },
                     )
                 }
+            }
+            if (editor.isNew) {
+                val target = calendars.firstOrNull { it.id == editor.calendarId }
+                Text(
+                    "Saves to: ${editor.scope.label} · ${target?.displayName ?: "no calendar selected"}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
             }
             CalendarPicker(
                 calendars = calendars,
