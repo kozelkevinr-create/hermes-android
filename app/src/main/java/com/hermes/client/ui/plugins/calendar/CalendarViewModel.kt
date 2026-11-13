@@ -58,6 +58,38 @@ data class EventEditorState(
     val isRecurring: Boolean get() = sourceEvent?.isRecurring == true || recurrencePreset != RecurrencePreset.NONE
 }
 
+/** Draft for the "New calendar" dialog. Calendars are always created in the profile store. */
+data class CalendarEditorState(
+    val name: String = "",
+    val description: String = "",
+    val timeZoneId: String = ZoneId.systemDefault().id,
+    val saving: Boolean = false,
+    val nameError: String? = null,
+    val zoneError: String? = null,
+    val error: String? = null,
+)
+
+internal const val CALENDAR_NAME_MAX = 200
+internal const val CALENDAR_DESCRIPTION_MAX = 2000
+
+/** Client-side check mirroring the server's limits; returns the draft with field errors set. */
+internal fun CalendarEditorState.validated(): CalendarEditorState {
+    val trimmed = name.trim()
+    val nameErr = when {
+        trimmed.isEmpty() -> "Name is required"
+        trimmed.length > CALENDAR_NAME_MAX -> "Name must be at most $CALENDAR_NAME_MAX characters"
+        else -> null
+    }
+    val zoneErr = if (runCatching { ZoneId.of(timeZoneId.trim()) }.isSuccess) null
+    else "Use an IANA zone such as Europe/Berlin"
+    val descErr = if (description.trim().length > CALENDAR_DESCRIPTION_MAX)
+        "Description must be at most $CALENDAR_DESCRIPTION_MAX characters" else null
+    return copy(nameError = nameErr, zoneError = zoneErr, error = descErr)
+}
+
+internal val CalendarEditorState.hasErrors: Boolean
+    get() = nameError != null || zoneError != null || error != null
+
 data class CalendarUiState(
     val loading: Boolean = true,
     val refreshing: Boolean = false,
@@ -78,6 +110,7 @@ data class CalendarUiState(
     val timeZone: ZoneId = ZoneId.systemDefault(),
     val firstDayOfWeek: DayOfWeek = firstDayOfWeekFor(),
     val editor: EventEditorState? = null,
+    val calendarEditor: CalendarEditorState? = null,
     val deleteTarget: CalendarEvent? = null,
     val deleteSeriesScope: SeriesScope = SeriesScope.ALL,
 ) {
@@ -382,16 +415,25 @@ class CalendarViewModel @Inject constructor(
 
     fun openCreate(date: LocalDate = _state.value.selectedDate) {
         val snapshot = _state.value
-        val calendars = snapshot.calendarsByScope[snapshot.scope].orEmpty()
-        val calendar = calendars.firstOrNull { !it.readOnly } ?: calendars.firstOrNull()
-        if (calendar == null) {
-            _state.update { it.copy(snackbar = SnackbarMessage("No calendar available in this store")) }
+        fun pick(scope: CalendarScope): Calendar? {
+            val list = snapshot.calendarsByScope[scope].orEmpty()
+            return list.firstOrNull { !it.readOnly }
+        }
+        // Prefer the visible store; if it has no writable calendar (e.g. a fresh profile), use the
+        // other one (the shared global calendar) so events can still be added. The editor shows
+        // which calendar the event will go to.
+        val scope = if (pick(snapshot.scope) != null) snapshot.scope
+        else CalendarScope.entries.firstOrNull { pick(it) != null }
+        val calendar = scope?.let(::pick)
+        if (scope == null || calendar == null) {
+            // Nothing writable anywhere: send the user to create a calendar.
+            openNewCalendar()
             return
         }
         _state.update {
             it.copy(
                 editor = EventEditorState(
-                    scope = snapshot.scope,
+                    scope = scope,
                     calendarId = calendar.id,
                     startDate = date,
                     endDate = date,
@@ -458,6 +500,68 @@ class CalendarViewModel @Inject constructor(
                 ?: calendars.firstOrNull { !it.readOnly }?.id
                 ?: calendars.firstOrNull()?.id.orEmpty()
             editor.copy(scope = scope, calendarId = calendarId)
+        }
+    }
+
+    // --- New calendar -------------------------------------------------------------------------
+
+    fun openNewCalendar() {
+        _state.update { it.copy(calendarEditor = CalendarEditorState(timeZoneId = it.timeZone.id)) }
+    }
+
+    fun updateCalendarEditor(transform: (CalendarEditorState) -> CalendarEditorState) {
+        _state.update { snapshot -> snapshot.copy(calendarEditor = snapshot.calendarEditor?.let(transform)) }
+    }
+
+    fun closeCalendarEditor() {
+        _state.update { it.copy(calendarEditor = null) }
+    }
+
+    /** Creates a calendar in the profile store, then selects it and refreshes. */
+    fun saveCalendar() {
+        val draft = _state.value.calendarEditor ?: return
+        if (draft.saving) return
+        val currentProfile = profile ?: return
+        val checked = draft.validated()
+        if (checked.hasErrors) {
+            updateCalendarEditor { checked }
+            return
+        }
+        updateCalendarEditor { checked.copy(saving = true) }
+        viewModelScope.launch {
+            val result = api.createCalendar(
+                profile = currentProfile,
+                scope = CalendarScope.PROFILE,
+                name = draft.name.trim(),
+                description = draft.description.trim().ifEmpty { null },
+                defaultTz = draft.timeZoneId.trim(),
+            )
+            when (result) {
+                is ApiResult.Success -> {
+                    val created = result.value
+                    _state.update {
+                        it.copy(
+                            calendarEditor = null,
+                            scope = CalendarScope.PROFILE,
+                            selectedCalendarId = created.id,
+                            calendarsByScope = it.calendarsByScope +
+                                (CalendarScope.PROFILE to (it.calendarsByScope[CalendarScope.PROFILE].orEmpty() + created)),
+                            snackbar = SnackbarMessage("Created \"${created.displayName}\""),
+                        )
+                    }
+                    load()
+                }
+                is ApiResult.Failure -> updateCalendarEditor { editor ->
+                    val message = result.error.userMessage()
+                    when {
+                        result.error is CalendarError.Validation && message.contains("name", ignoreCase = true) ->
+                            editor.copy(saving = false, nameError = message)
+                        result.error is CalendarError.Validation && message.contains("default_tz", ignoreCase = true) ->
+                            editor.copy(saving = false, zoneError = message)
+                        else -> editor.copy(saving = false, error = message)
+                    }
+                }
+            }
         }
     }
 
