@@ -134,6 +134,24 @@ class CalendarApi @Inject constructor(
             ?: throw IllegalStateException("calendar missing from response")
     }
 
+    /**
+     * Re-reads one event (or one occurrence when [occurrenceStart] is the occurrence's original
+     * start). Needs a server with `GET /events/{id}`; see [CalendarError.NotFound.routeMissing].
+     */
+    suspend fun event(
+        profile: String,
+        scope: CalendarScope,
+        eventId: String,
+        occurrenceStart: String? = null,
+    ): ApiResult<CalendarEvent> = request(
+        Method.GET,
+        "/events/${encodePath(eventId)}",
+        listOf("profile" to profile, "scope" to scope.wire, "occurrence_start" to occurrenceStart),
+    ) { body ->
+        json.decodeFromString(EventResponseDto.serializer(), body).event?.toDomain()
+            ?: throw IllegalStateException("event missing from response")
+    }
+
     suspend fun createEvent(profile: String, draft: EventDraft): ApiResult<CalendarEvent> = request(
         Method.POST,
         "/events",
@@ -313,7 +331,12 @@ fun <T> ApiResult<T>.valueOrNull(): T? = (this as? ApiResult.Success)?.value
 
 sealed class CalendarError(message: String) : Exception(message) {
     class Unauthorized(message: String = "Unauthorized") : CalendarError(message)
-    class NotFound(message: String = "Not found") : CalendarError(message)
+    /**
+     * 404. [routeMissing] is true for the framework's own 404 (`{"detail":"Not Found"}`, no `code`),
+     * i.e. an older server without this route; false for the plugin's `not_found` envelope, which
+     * means the route exists but the record does not.
+     */
+    class NotFound(message: String = "Not found", val routeMissing: Boolean = false) : CalendarError(message)
 
     /** Revision conflict (409). [eventId] is the row the client should re-read. */
     class Conflict(
@@ -344,7 +367,7 @@ internal fun parseApiError(text: String, status: Int, json: Json): CalendarError
     }
     return when {
         status == 400 -> CalendarError.Validation(message ?: "Invalid request")
-        status == 404 -> CalendarError.NotFound(message ?: "Not found")
+        status == 404 -> CalendarError.NotFound(message ?: "Not found", routeMissing = envelope?.code == null)
         status == 409 -> CalendarError.Conflict(null, null, message ?: "Conflict")
         status >= 500 -> CalendarError.Server(status, message ?: "Server error")
         else -> CalendarError.Server(status, message ?: "HTTP $status")
