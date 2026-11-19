@@ -21,6 +21,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.launch
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -124,6 +125,8 @@ class MatrixRoomViewModelTest {
     private fun vm(
         loadCommands: suspend () -> List<Pair<String, String>> = { emptyList() },
         loadProviders: suspend () -> List<ModelProviderDto> = { emptyList() },
+        favorites: kotlinx.coroutines.flow.Flow<Set<String>> = kotlinx.coroutines.flow.flowOf(emptySet()),
+        toggleFavorite: suspend (String, String) -> Unit = { _, _ -> },
     ): MatrixRoomViewModel {
         opened.clear()
         return MatrixRoomViewModel(
@@ -143,6 +146,8 @@ class MatrixRoomViewModelTest {
             },
             loadCommands = loadCommands,
             loadProviders = loadProviders,
+            favoritesFlow = favorites,
+            toggleFavoriteInStore = toggleFavorite,
         )
     }
 
@@ -832,5 +837,52 @@ class MatrixRoomViewModelTest {
 
         assertEquals(listOf("/model fast --provider openrouter --session"), timeline.sent)
         assertFalse(vm.modelPicker.value.open)
+    }
+
+    @Test
+    fun the_search_query_is_kept_while_open_and_cleared_on_reopen() = runTest {
+        readyRoom()
+        val vm = vm(loadProviders = { providers })
+
+        vm.openModelPicker()
+        advanceUntilIdle()
+        vm.onModelQuery("qw")
+        assertEquals("qw", vm.modelPicker.value.query)
+
+        vm.dismissModelPicker()
+        vm.openModelPicker()
+        assertEquals("", vm.modelPicker.value.query)
+    }
+
+    @Test
+    fun the_last_picked_model_is_marked_current_on_reopen() = runTest {
+        readyRoom()
+        val vm = vm(loadProviders = { providers })
+
+        vm.openModelPicker()
+        advanceUntilIdle()
+        assertEquals(null, vm.modelPicker.value.currentModel)
+
+        vm.selectModel("local", "qwen")
+        vm.openModelPicker()
+        assertEquals("local", vm.modelPicker.value.currentProvider)
+        assertEquals("qwen", vm.modelPicker.value.currentModel)
+    }
+
+    @Test
+    fun favorites_come_from_the_shared_store_and_toggles_go_back_to_it() = runTest {
+        val stored = kotlinx.coroutines.flow.MutableStateFlow(setOf("local/qwen"))
+        val toggled = mutableListOf<Pair<String, String>>()
+        readyRoom()
+        val vm = vm(favorites = stored, toggleFavorite = { p, m -> toggled += p to m })
+
+        val collector = backgroundScope.launch { vm.favorites.collect {} }
+        advanceUntilIdle()
+        assertEquals(setOf("local/qwen"), vm.favorites.value)
+
+        vm.toggleFavoriteModel("openrouter", "fast")
+        advanceUntilIdle()
+        assertEquals(listOf("openrouter" to "fast"), toggled)
+        collector.cancel()
     }
 }
