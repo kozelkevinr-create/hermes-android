@@ -205,6 +205,12 @@ class ChatViewModel @Inject constructor(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
+                // A session just created over the socket is live but not persisted yet, so the
+                // gateway can't find it to resume. Its id is already the live handle: nothing to retry.
+                if (e.message?.contains("session not found", ignoreCase = true) == true) {
+                    com.hermes.client.data.diagnostics.DebugLog.log("session", "resume($id): not persisted yet, using id as handle")
+                    return null
+                }
                 last = e
                 com.hermes.client.data.diagnostics.DebugLog.log("session", "resume($id) attempt ${attempt + 1} failed: ${e.message}")
                 kotlinx.coroutines.delay(400L * (attempt + 1))
