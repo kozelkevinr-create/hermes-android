@@ -127,6 +127,8 @@ class MatrixRoomViewModelTest {
         loadProviders: suspend () -> List<ModelProviderDto> = { emptyList() },
         favorites: kotlinx.coroutines.flow.Flow<Set<String>> = kotlinx.coroutines.flow.flowOf(emptySet()),
         toggleFavorite: suspend (String, String) -> Unit = { _, _ -> },
+        loadLastModel: suspend () -> Pair<String, String>? = { null },
+        saveLastModel: suspend (String, String) -> Unit = { _, _ -> },
     ): MatrixRoomViewModel {
         opened.clear()
         return MatrixRoomViewModel(
@@ -148,6 +150,8 @@ class MatrixRoomViewModelTest {
             loadProviders = loadProviders,
             favoritesFlow = favorites,
             toggleFavoriteInStore = toggleFavorite,
+            loadLastModel = loadLastModel,
+            saveLastModel = saveLastModel,
         )
     }
 
@@ -884,5 +888,41 @@ class MatrixRoomViewModelTest {
         advanceUntilIdle()
         assertEquals(listOf("openrouter" to "fast"), toggled)
         collector.cancel()
+    }
+
+    @Test
+    fun the_saved_model_is_restored_as_current_after_a_restart() = runTest {
+        readyRoom()
+        val vm = vm(loadLastModel = { "local" to "qwen" })
+        advanceUntilIdle()
+        assertEquals("local", vm.modelPicker.value.currentProvider)
+        assertEquals("qwen", vm.modelPicker.value.currentModel)
+    }
+
+    @Test
+    fun picking_a_model_saves_it_for_the_room() = runTest {
+        val saved = mutableListOf<Pair<String, String>>()
+        readyRoom()
+        val vm = vm(loadProviders = { providers }, saveLastModel = { p, m -> saved += p to m })
+        vm.openModelPicker()
+        advanceUntilIdle()
+        vm.selectModel("openrouter", "fast")
+        advanceUntilIdle()
+        assertEquals(listOf("openrouter" to "fast"), saved)
+    }
+
+    @Test
+    fun a_failing_save_or_load_never_breaks_the_picker() = runTest {
+        readyRoom()
+        val vm = vm(
+            loadProviders = { providers },
+            loadLastModel = { error("disk") },
+            saveLastModel = { _, _ -> error("disk") },
+        )
+        vm.openModelPicker()
+        advanceUntilIdle()
+        vm.selectModel("local", "qwen")
+        advanceUntilIdle()
+        assertEquals("qwen", vm.modelPicker.value.currentModel)
     }
 }
