@@ -1,5 +1,6 @@
 package com.hermes.client.ui.nav
 
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import android.net.Uri
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
@@ -334,6 +335,37 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
             composable(NavRoutes.APPROVALS) { com.hermes.client.ui.approvals.ApprovalsScreen(onBack = back) }
             composable(NavRoutes.CLARIFICATIONS) { com.hermes.client.ui.approvals.ClarificationsScreen(onBack = back) }
             composable(NavRoutes.USAGE) { UsageScreen(onMenu = back) }
+            composable(NavRoutes.PLUGINS) {
+                com.hermes.client.ui.plugins.PluginsScreen(
+                    onBack = back,
+                    onOpenNative = { plugin -> nav.navigate("plugin_native/${android.net.Uri.encode(plugin)}") },
+                )
+            }
+            composable(NavRoutes.PLUGIN_NATIVE) { entry ->
+                val view = com.hermes.client.ui.plugins.NativePluginViews
+                    .forPlugin(entry.arguments?.getString("plugin") ?: "")
+                if (view != null) {
+                    androidx.compose.material3.Scaffold(
+                        topBar = {
+                            com.hermes.client.ui.components.HermesTopBar(
+                                title = view.title,
+                                navigationIcon = {
+                                    androidx.compose.material3.IconButton(onClick = back) {
+                                        androidx.compose.material3.Icon(
+                                            androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack,
+                                            contentDescription = "Back",
+                                        )
+                                    }
+                                },
+                            )
+                        },
+                    ) { padding ->
+                        androidx.compose.foundation.layout.Box(
+                            androidx.compose.ui.Modifier.padding(padding),
+                        ) { view.Content(onBack = back) }
+                    }
+                }
+            }
             composable(NavRoutes.SETTINGS) {
                 SettingsScreen(
                     onMenu = back,
@@ -360,6 +392,9 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
             }
             composable(NavRoutes.SETTINGS_DIAGNOSTICS) {
                 com.hermes.client.ui.settings.DiagnosticsScreen(onBack = { nav.popBackStack() })
+            }
+            composable(NavRoutes.SETTINGS_ACHIEVEMENTS) {
+                com.hermes.client.ui.plugins.achievements.AchievementsScreen(onBack = { nav.popBackStack() })
             }
             composable(NavRoutes.SETTINGS_ABOUT) { AboutScreen(onBack = { nav.popBackStack() }) }
             composable(NavRoutes.SESSION_ADMIN) {

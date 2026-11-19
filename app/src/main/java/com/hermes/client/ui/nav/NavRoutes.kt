@@ -36,6 +36,8 @@ object NavRoutes {
     const val MESSAGING = "messaging"
     const val MESSAGING_SETUP = "messaging_setup/{id}"
     const val USAGE = "usage"
+    const val PLUGINS = "plugins"
+    const val PLUGIN_NATIVE = "plugin_native/{plugin}"
     const val SETTINGS = "settings"
     const val SETTINGS_APPEARANCE = "settings_appearance"
     const val SETTINGS_NOTIFICATIONS = "settings_notifications"
@@ -49,6 +51,7 @@ object NavRoutes {
     const val SETTINGS_MATRIX = "settings_matrix"
     const val SETTINGS_DIAGNOSTICS = "settings_diagnostics"
     const val SETTINGS_ABOUT = "settings_about"
+    const val SETTINGS_ACHIEVEMENTS = "settings_achievements"
     const val SESSION_ADMIN = "session_admin"
     const val AGENTS_TOOLS = "agents_tools"
     const val APPROVALS = "approvals"
@@ -83,6 +86,8 @@ val NAV_ROUTES: List<String> = listOf(
     NavRoutes.MESSAGING,
     NavRoutes.MESSAGING_SETUP,
     NavRoutes.USAGE,
+    NavRoutes.PLUGINS,
+    NavRoutes.PLUGIN_NATIVE,
     NavRoutes.SETTINGS,
     NavRoutes.SETTINGS_APPEARANCE,
     NavRoutes.SETTINGS_NOTIFICATIONS,
@@ -96,6 +101,7 @@ val NAV_ROUTES: List<String> = listOf(
     NavRoutes.SETTINGS_MATRIX,
     NavRoutes.SETTINGS_DIAGNOSTICS,
     NavRoutes.SETTINGS_ABOUT,
+    NavRoutes.SETTINGS_ACHIEVEMENTS,
     NavRoutes.SESSION_ADMIN,
     NavRoutes.AGENTS_TOOLS,
     NavRoutes.APPROVALS,

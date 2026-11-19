@@ -70,6 +70,7 @@ import org.matrix.rustcomponents.sdk.SqliteStoreBuilder
 import org.matrix.rustcomponents.sdk.SyncService
 import org.matrix.rustcomponents.sdk.SyncServiceState
 import org.matrix.rustcomponents.sdk.SyncServiceStateObserver
+import org.matrix.rustcomponents.sdk.SendQueueRoomErrorListener
 import org.matrix.rustcomponents.sdk.TaskHandle
 import org.matrix.rustcomponents.sdk.Timeline
 import org.matrix.rustcomponents.sdk.TimelineDiff
@@ -134,6 +135,8 @@ private class RustClientHandle(private val client: Client) : MatrixClientHandle 
 
     private var syncService: SyncService? = null
     private var syncStateHandle: TaskHandle? = null
+    private var sendQueueHandle: TaskHandle? = null
+    @Volatile private var sendQueueResume: kotlinx.coroutines.Job? = null
     private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var roomListService: RoomListService? = null
     private var roomList: RoomList? = null
@@ -176,9 +179,22 @@ private class RustClientHandle(private val client: Client) : MatrixClientHandle 
                 override fun onUpdate(state: SyncServiceState) {
                     Log.i(SYNC_TAG, "sync state: $state")
                     if (state == SyncServiceState.ERROR && !closed) restartSyncLater(sync)
+                    // Back online: any room whose queue was paused by a network error resumes.
+                    if (state == SyncServiceState.RUNNING && !closed) resumeSendQueues(0)
                 }
             },
         )
+        // A failed send (e.g. a network blip) pauses that room's send queue, and the SDK keeps
+        // every later message waiting until it is re-enabled. Re-enable it after a short delay.
+        sendQueueHandle = client.subscribeToSendQueueStatus(
+            object : SendQueueRoomErrorListener {
+                override fun onError(roomId: String, error: org.matrix.rustcomponents.sdk.ClientException) {
+                    DebugLog.log("matrix-sendqueue", "queue paused: ${error.javaClass.simpleName}")
+                    if (!closed) resumeSendQueues(SEND_QUEUE_RESUME_DELAY_MS)
+                }
+            },
+        )
+        resumeSendQueues(0)
         val svc = sync.roomListService()
         roomListService = svc
         val list = svc.allRooms()
@@ -197,6 +213,22 @@ private class RustClientHandle(private val client: Client) : MatrixClientHandle 
         controller = ctl
         ctl.setFilter(RoomListEntriesDynamicFilterKind.NonLeft)
         sync.start()
+    }
+
+    /** Re-enables every room's send queue after [delayMs]; overlapping requests share one run. */
+    private fun resumeSendQueues(delayMs: Long) {
+        if (sendQueueResume?.isActive == true) return
+        sendQueueResume = syncScope.launch {
+            delay(delayMs)
+            if (closed) return@launch
+            try {
+                client.enableAllSendQueues(true)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                DebugLog.log("matrix-sendqueue", "resume failed: ${e.javaClass.simpleName}")
+            }
+        }
     }
 
     private fun restartSyncLater(sync: SyncService) {
@@ -406,6 +438,7 @@ private class RustClientHandle(private val client: Client) : MatrixClientHandle 
         // Order: cancel subscriptions, stop sync, then destroy children before the client.
         runCatching { entriesHandle?.cancel() }
         runCatching { syncStateHandle?.cancel() }
+        runCatching { sendQueueHandle?.cancel() }
         syncScope.cancel()
         try {
             syncService?.stop()
@@ -429,6 +462,7 @@ private class RustClientHandle(private val client: Client) : MatrixClientHandle 
         runCatching { roomList?.destroy() }
         runCatching { roomListService?.destroy() }
         runCatching { syncStateHandle?.destroy() }
+        runCatching { sendQueueHandle?.destroy() }
         runCatching { syncService?.destroy() }
         runCatching { client.destroy() }
         entriesHandle = null
@@ -438,11 +472,15 @@ private class RustClientHandle(private val client: Client) : MatrixClientHandle 
         roomListService = null
         syncService = null
         syncStateHandle = null
+        sendQueueHandle = null
     }
 }
 
 /** Number of events the timeline loads on the first page and on every repagination. */
 private const val TIMELINE_PAGE_SIZE = 50
+
+/** Delay before re-enabling a send queue the SDK paused after a failed send. */
+private const val SEND_QUEUE_RESUME_DELAY_MS = 3_000L
 
 /** Members fetched per call when listing a room's people. */
 private const val MEMBER_CHUNK = 100u
