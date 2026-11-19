@@ -109,6 +109,15 @@ class HermesRestApi(
         return "${sep}profile=${java.net.URLEncoder.encode(profile, "UTF-8")}"
     }
 
+    /** Raw `GET /api/dashboard/plugins` body; shape is parsed leniently by the plugin host. */
+    suspend fun dashboardPluginsRaw(): String = withContext(Dispatchers.IO) {
+        okHttp.newCall(builder("/api/dashboard/plugins").get().build()).execute().use { resp ->
+            val body = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) throw HermesApiException(resp.code, body.ifBlank { "HTTP ${resp.code}" })
+            body
+        }
+    }
+
     suspend fun profiles(): List<ProfileDto> = get<ProfilesDto>("/api/profiles").profiles
 
     /** The gateway's currently-active profile name (current takes precedence over active). */
