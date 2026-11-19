@@ -239,72 +239,27 @@ fun MatrixRoomScreen(
     }
 
     if (picker.open) {
-        ModelPickerSheet(
-            picker,
-            onPick = vm::selectModel,
-            onRetry = {
-                vm.dismissModelPicker()
-                vm.openModelPicker()
-            },
+        val favorites by vm.favorites.collectAsStateWithLifecycle()
+        val items = com.hermes.client.ui.models.modelSelectorRows(
+            providers = picker.providers,
+            favorites = favorites,
+            query = picker.query,
+            currentProvider = picker.currentProvider,
+            currentModel = picker.currentModel,
+        )
+        com.hermes.client.ui.models.ModelSelectorSheet(
+            items = items,
+            query = picker.query,
+            onQueryChange = vm::onModelQuery,
+            scope = null, // the room's model is switched with a /model --session command
+            onScopeChange = {},
+            onToggleFavorite = vm::toggleFavoriteModel,
+            onSelect = vm::selectModel,
+            pending = picker.loading,
+            // Close and reopen the sheet to retry a failed load.
+            error = if (picker.failed) "Couldn't load the model list. Close and reopen to retry." else null,
             onDismiss = vm::dismissModelPicker,
         )
-    }
-}
-
-/** The quick actions' model picker: providers from the gateway, models under each provider. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ModelPickerSheet(
-    picker: ModelPickerUi,
-    onPick: (provider: String, model: String) -> Unit,
-    onRetry: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 16.dp)) {
-            Text(
-                "Choose a model",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
-            when {
-                picker.loading -> CircularProgressIndicator(Modifier.padding(vertical = 24.dp))
-                picker.failed -> {
-                    Text(
-                        "Couldn't load the model list.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(vertical = 8.dp),
-                    )
-                    TextButton(onClick = onRetry) { Text("Retry") }
-                }
-                picker.providers.isEmpty() ->
-                    Text(
-                        "No models available.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 8.dp),
-                    )
-                else -> LazyColumn(Modifier.height(400.dp)) {
-                    picker.providers.forEach { provider ->
-                        item(key = "provider-${provider.slug}") {
-                            Text(
-                                provider.name ?: provider.slug,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 12.dp, bottom = 2.dp, start = 4.dp),
-                            )
-                        }
-                        items(provider.models, key = { "${provider.slug}:$it" }) { model ->
-                            ListItem(
-                                headlineContent = { Text(model) },
-                                modifier = Modifier.clickable { onPick(provider.slug, model) },
-                            )
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 

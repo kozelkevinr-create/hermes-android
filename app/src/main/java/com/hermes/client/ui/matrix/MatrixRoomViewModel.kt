@@ -52,6 +52,14 @@ data class ModelPickerUi(
     val loading: Boolean = false,
     val providers: List<ModelProviderDto> = emptyList(),
     val failed: Boolean = false,
+    /** Search text in the sheet; cleared each time the sheet opens. */
+    val query: String = "",
+    /**
+     * The model last chosen in this room from this app. The bot applies `/model` as a chat command,
+     * so the app can't read the room's real model back; null until a pick is made here.
+     */
+    val currentProvider: String? = null,
+    val currentModel: String? = null,
 )
 
 /** Drives one room timeline: opens it, folds its items to rows, and pages backwards on demand. */
@@ -65,6 +73,10 @@ class MatrixRoomViewModel internal constructor(
     private val removeStaged: suspend (StagedImage) -> Unit,
     private val loadCommands: suspend () -> List<Pair<String, String>> = { emptyList() },
     private val loadProviders: suspend () -> List<ModelProviderDto> = { emptyList() },
+    favoritesFlow: kotlinx.coroutines.flow.Flow<Set<String>> = kotlinx.coroutines.flow.flowOf(emptySet()),
+    private val toggleFavoriteInStore: suspend (String, String) -> Unit = { _, _ -> },
+    private val loadLastModel: suspend () -> Pair<String, String>? = { null },
+    private val saveLastModel: suspend (String, String) -> Unit = { _, _ -> },
 ) : ViewModel() {
 
     @Inject constructor(
@@ -73,6 +85,8 @@ class MatrixRoomViewModel internal constructor(
         imageStager: ImageStager,
         chatRepository: ChatRepository,
         modelRepository: ModelRepository,
+        favoritesStore: com.hermes.client.data.repository.ModelFavoritesStore,
+        roomModelStore: com.hermes.client.data.repository.RoomModelStore,
     ) : this(
         roomId = savedStateHandle.get<String>("roomId") ?: "",
         matrix = manager.state,
@@ -88,6 +102,12 @@ class MatrixRoomViewModel internal constructor(
             chatRepository.commandsCatalog()
         },
         loadProviders = { modelRepository.providers() },
+        favoritesFlow = favoritesStore.favorites,
+        toggleFavoriteInStore = { provider, model -> favoritesStore.toggle(provider, model) },
+        loadLastModel = { roomModelStore.get(savedStateHandle.get<String>("roomId") ?: "") },
+        saveLastModel = { provider, model ->
+            roomModelStore.set(savedStateHandle.get<String>("roomId") ?: "", provider, model)
+        },
     )
 
     /** The room's name and encryption, for the top bar; null while the room list is empty. */
@@ -133,6 +153,18 @@ class MatrixRoomViewModel internal constructor(
     /** The quick actions' model picker: providers fetched from the gateway's REST API on open. */
     val modelPicker: StateFlow<ModelPickerUi> = _modelPicker.asStateFlow()
 
+    /** Favourite models (store keys), shared with the Sessions chat picker. */
+    val favorites: StateFlow<Set<String>> =
+        favoritesFlow.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    fun onModelQuery(query: String) {
+        _modelPicker.value = _modelPicker.value.copy(query = query)
+    }
+
+    fun toggleFavoriteModel(provider: String, model: String) {
+        viewModelScope.launch { toggleFavoriteInStore(provider, model) }
+    }
+
     private val _editing = MutableStateFlow<EventOrTxnId?>(null)
 
     /** The item being edited; null while the composer is in send mode. */
@@ -151,6 +183,21 @@ class MatrixRoomViewModel internal constructor(
     private var loading = false
 
     init {
+        // Restore the room's last picked model so "current" survives an app restart. Best-effort.
+        viewModelScope.launch {
+            val saved = try {
+                loadLastModel()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
+            if (saved != null && _modelPicker.value.currentModel == null) {
+                _modelPicker.value = _modelPicker.value.copy(
+                    currentProvider = saved.first, currentModel = saved.second,
+                )
+            }
+        }
         viewModelScope.launch {
             matrix.collect { m ->
                 when (m) {
@@ -450,17 +497,17 @@ class MatrixRoomViewModel internal constructor(
         val current = _modelPicker.value
         if (current.open) return
         if (current.providers.isNotEmpty()) {
-            _modelPicker.value = ModelPickerUi(open = true, providers = current.providers)
+            _modelPicker.value = current.copy(open = true, query = "", failed = false)
             return
         }
-        _modelPicker.value = ModelPickerUi(open = true, loading = true)
+        _modelPicker.value = current.copy(open = true, loading = true, failed = false, query = "")
         viewModelScope.launch {
             _modelPicker.value = try {
-                ModelPickerUi(open = true, providers = loadProviders())
+                _modelPicker.value.copy(loading = false, providers = loadProviders())
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
-                ModelPickerUi(open = true, failed = true)
+                _modelPicker.value.copy(loading = false, failed = true)
             }
         }
     }
@@ -472,8 +519,19 @@ class MatrixRoomViewModel internal constructor(
 
     /** Applies a model pick: closes the sheet and sends the SESSION-scope /model command. */
     fun selectModel(provider: String, model: String) {
-        _modelPicker.value = _modelPicker.value.copy(open = false)
+        _modelPicker.value = _modelPicker.value.copy(
+            open = false, currentProvider = provider, currentModel = model,
+        )
         sendCommand(modelCommand(provider, model))
+        viewModelScope.launch {
+            try {
+                saveLastModel(provider, model)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Remembering the pick is a convenience; the switch itself already went out.
+            }
+        }
     }
 
     private fun closeTimeline() {

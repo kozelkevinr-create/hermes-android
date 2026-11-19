@@ -21,6 +21,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.launch
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -124,6 +125,10 @@ class MatrixRoomViewModelTest {
     private fun vm(
         loadCommands: suspend () -> List<Pair<String, String>> = { emptyList() },
         loadProviders: suspend () -> List<ModelProviderDto> = { emptyList() },
+        favorites: kotlinx.coroutines.flow.Flow<Set<String>> = kotlinx.coroutines.flow.flowOf(emptySet()),
+        toggleFavorite: suspend (String, String) -> Unit = { _, _ -> },
+        loadLastModel: suspend () -> Pair<String, String>? = { null },
+        saveLastModel: suspend (String, String) -> Unit = { _, _ -> },
     ): MatrixRoomViewModel {
         opened.clear()
         return MatrixRoomViewModel(
@@ -143,6 +148,10 @@ class MatrixRoomViewModelTest {
             },
             loadCommands = loadCommands,
             loadProviders = loadProviders,
+            favoritesFlow = favorites,
+            toggleFavoriteInStore = toggleFavorite,
+            loadLastModel = loadLastModel,
+            saveLastModel = saveLastModel,
         )
     }
 
@@ -832,5 +841,88 @@ class MatrixRoomViewModelTest {
 
         assertEquals(listOf("/model fast --provider openrouter --session"), timeline.sent)
         assertFalse(vm.modelPicker.value.open)
+    }
+
+    @Test
+    fun the_search_query_is_kept_while_open_and_cleared_on_reopen() = runTest {
+        readyRoom()
+        val vm = vm(loadProviders = { providers })
+
+        vm.openModelPicker()
+        advanceUntilIdle()
+        vm.onModelQuery("qw")
+        assertEquals("qw", vm.modelPicker.value.query)
+
+        vm.dismissModelPicker()
+        vm.openModelPicker()
+        assertEquals("", vm.modelPicker.value.query)
+    }
+
+    @Test
+    fun the_last_picked_model_is_marked_current_on_reopen() = runTest {
+        readyRoom()
+        val vm = vm(loadProviders = { providers })
+
+        vm.openModelPicker()
+        advanceUntilIdle()
+        assertEquals(null, vm.modelPicker.value.currentModel)
+
+        vm.selectModel("local", "qwen")
+        vm.openModelPicker()
+        assertEquals("local", vm.modelPicker.value.currentProvider)
+        assertEquals("qwen", vm.modelPicker.value.currentModel)
+    }
+
+    @Test
+    fun favorites_come_from_the_shared_store_and_toggles_go_back_to_it() = runTest {
+        val stored = kotlinx.coroutines.flow.MutableStateFlow(setOf("local/qwen"))
+        val toggled = mutableListOf<Pair<String, String>>()
+        readyRoom()
+        val vm = vm(favorites = stored, toggleFavorite = { p, m -> toggled += p to m })
+
+        val collector = backgroundScope.launch { vm.favorites.collect {} }
+        advanceUntilIdle()
+        assertEquals(setOf("local/qwen"), vm.favorites.value)
+
+        vm.toggleFavoriteModel("openrouter", "fast")
+        advanceUntilIdle()
+        assertEquals(listOf("openrouter" to "fast"), toggled)
+        collector.cancel()
+    }
+
+    @Test
+    fun the_saved_model_is_restored_as_current_after_a_restart() = runTest {
+        readyRoom()
+        val vm = vm(loadLastModel = { "local" to "qwen" })
+        advanceUntilIdle()
+        assertEquals("local", vm.modelPicker.value.currentProvider)
+        assertEquals("qwen", vm.modelPicker.value.currentModel)
+    }
+
+    @Test
+    fun picking_a_model_saves_it_for_the_room() = runTest {
+        val saved = mutableListOf<Pair<String, String>>()
+        readyRoom()
+        val vm = vm(loadProviders = { providers }, saveLastModel = { p, m -> saved += p to m })
+        vm.openModelPicker()
+        advanceUntilIdle()
+        vm.selectModel("openrouter", "fast")
+        advanceUntilIdle()
+        assertEquals(listOf("openrouter" to "fast"), saved)
+    }
+
+    @Test
+    fun a_failing_save_or_load_never_breaks_the_picker() = runTest {
+        readyRoom()
+        val vm = vm(
+            loadProviders = { providers },
+            loadLastModel = { error("disk") },
+            saveLastModel = { _, _ -> error("disk") },
+        )
+        vm.openModelPicker()
+        advanceUntilIdle()
+        vm.selectModel("local", "qwen")
+        advanceUntilIdle()
+        assertEquals("qwen", vm.modelPicker.value.currentModel)
     }
 }
