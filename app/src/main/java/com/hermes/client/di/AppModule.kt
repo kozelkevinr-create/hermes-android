@@ -216,6 +216,13 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideRoomModelStore(
+        @ApplicationContext context: Context,
+    ): com.hermes.client.data.repository.RoomModelStore =
+        com.hermes.client.data.repository.RoomModelStore(context)
+
+    @Provides
+    @Singleton
     fun provideModelFavoritesStore(
         @ApplicationContext context: Context,
     ): com.hermes.client.data.repository.ModelFavoritesStore =
