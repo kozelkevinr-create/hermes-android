@@ -111,6 +111,31 @@ class ChatViewModelTest {
     }
 
     /**
+     * A session just created over the socket is live but not persisted yet, so resume answers
+     * "session not found". That is not a failure: no retries and no "couldn't reattach" error.
+     */
+    @Test fun resume_session_not_found_is_not_retried_or_reported() = runTest {
+        coEvery { chatRepo.resume("new1", null) } throws RuntimeException("session not found")
+        val vm = buildVm()
+        vm.open("new1")
+        advanceUntilIdle()
+        coVerify(exactly = 1) { chatRepo.resume("new1", null) }
+        assertFalse(vm.state.value.messages.any { it.isError })
+    }
+
+    /** Any other resume failure is still retried (3 attempts) and then reported to the user. */
+    @Test fun resume_other_failure_is_retried_then_reported() = runTest {
+        coEvery { chatRepo.resume("s9", null) } throws RuntimeException("gateway busy")
+        val vm = buildVm()
+        vm.open("s9")
+        advanceUntilIdle()
+        coVerify(exactly = 3) { chatRepo.resume("s9", null) }
+        val error = vm.state.value.messages.last { it.isError }
+        assertTrue(error.text.contains("Couldn't reattach"))
+        assertTrue(error.text.contains("gateway busy"))
+    }
+
+    /**
      * A pending image share must be staged as a local attachment chip (not attached to the
      * gateway immediately) — it's flushed on the next send() using whatever the live
      * post-resume sessionId is at that time.
